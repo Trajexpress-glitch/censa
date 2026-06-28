@@ -92,12 +92,17 @@
       p.subscribe();
       RT.personal = p;
     } catch (e) {}
+
+    // abonnement aux messages persistés (DM + groupes)
+    subscribeMessages();
   }
 
   function stop() {
     var sb = SB();
     try { if (RT.presence && sb) sb.removeChannel(RT.presence); } catch (e) {}
     try { if (RT.personal && sb) sb.removeChannel(RT.personal); } catch (e) {}
+    try { if (RT.msgChan && sb) sb.removeChannel(RT.msgChan); } catch (e) {}
+    RT.msgChan = null;
     Object.keys(RT.sendChans).forEach(function (k) { try { sb && sb.removeChannel(RT.sendChans[k]); } catch (e) {} });
     RT.sendChans = {};
     teardownCall();
@@ -170,6 +175,112 @@
     var fu = payload.fromUser;
     try { if (window.CENSA_CLOUD && fu && fu.name) window.CENSA_CLOUD.registerUser(fu); } catch (e) {}
     addNotif({ type: payload.type || 'system', user: payload.from || 'system', fromUser: fu, text: payload.text || { fr: '', en: '' } });
+  }
+
+  /* ============================================================
+     PERSISTANCE DES MESSAGES (table Postgres 'messages')
+     ------------------------------------------------------------
+     Contrairement au broadcast (éphémère), chaque message est
+     ENREGISTRÉ dans la base. Conséquences :
+       · un ami HORS LIGNE reçoit le message à sa prochaine ouverture
+       · l'historique se synchronise sur tous les appareils
+       · les messages de GROUPE sont livrés à tous les membres
+     La réception passe par Supabase Realtime (postgres_changes :
+     INSERT) ; chaque message porte un identifiant 'mid' unique qui
+     sert à dédupliquer (jamais affiché deux fois). ------------- */
+  function newMid() { return 'm_' + Date.now().toString(36) + Math.random().toString(36).slice(2, 8); }
+  function pairKey(a, b) { return [String(a), String(b)].sort().join('|'); }
+  function myGroups() { try { var v = JSON.parse(localStorage.getItem('censa_groups')); return Array.isArray(v) ? v : []; } catch (e) { return []; } }
+  function inMyGroups(gid) { return myGroups().some(function (g) { return g && g.id === gid; }); }
+
+  // Écrit un message dans le 'censa_chats' local sous convId. Renvoie false
+  // (sans rien faire) si le mid est déjà présent → anti-doublon.
+  function localApply(convId, msg) {
+    if (!convId) return false;
+    try {
+      var all = JSON.parse(localStorage.getItem('censa_chats')) || {};
+      if (!all || typeof all !== 'object') all = {};
+      var arr = Array.isArray(all[convId]) ? all[convId] : [];
+      if (msg.mid && arr.some(function (m) { return m.mid === msg.mid; })) return false;
+      arr.push({ mid: msg.mid, from: msg.from, text: msg.text || '', time: msg.time || hhmm(), ts: msg.ts || Date.now() });
+      arr.sort(function (a, b) { return (a.ts || 0) - (b.ts || 0); });
+      all[convId] = arr;
+      localStorage.setItem('censa_chats', JSON.stringify(all));
+      return true;
+    } catch (e) { return false; }
+  }
+
+  // Aiguille une ligne de la base vers la bonne conversation locale.
+  function rowToLocal(row, silent) {
+    if (!row || !RT.uid) return;
+    var me = RT.uid;
+    if (row.conv_kind === 'group') {
+      if (!inMyGroups(row.group_id)) return;
+      var gFrom = row.sender_id === me ? 'me' : row.sender_id;
+      if (localApply(row.group_id, { mid: row.mid, from: gFrom, text: row.body, ts: +new Date(row.created_at) })) {
+        emit('censa:msg', {});
+        if (!silent && row.sender_id !== me) addNotif({ type: 'message', user: row.sender_id, text: { fr: 'a écrit dans un groupe', en: 'posted in a group' } });
+      }
+    } else {
+      if (row.sender_id !== me && row.recipient_id !== me) return; // pas pour moi
+      var other = row.sender_id === me ? row.recipient_id : row.sender_id; // conv 1:1 = l'autre
+      var dFrom = row.sender_id === me ? 'me' : row.sender_id;
+      if (localApply(other, { mid: row.mid, from: dFrom, text: row.body, ts: +new Date(row.created_at) })) {
+        emit('censa:msg', {});
+        if (!silent && row.sender_id !== me) {
+          try { if (window.CENSA_CLOUD) window.CENSA_CLOUD.registerUser({ id: row.sender_id }); } catch (e) {}
+          addNotif({ type: 'message', user: row.sender_id, text: { fr: 'vous a envoyé un message', en: 'sent you a message' } });
+        }
+      }
+    }
+  }
+
+  // Abonnement temps réel aux nouveaux messages me concernant.
+  function subscribeMessages() {
+    var sb = SB(); if (!sb || !RT.uid) return;
+    try {
+      var ch = sb.channel('censa-db-messages');
+      ch.on('postgres_changes', { event: 'INSERT', schema: 'public', table: 'chat_messages' }, function (p) { rowToLocal(p.new, false); });
+      ch.subscribe();
+      RT.msgChan = ch;
+    } catch (e) {}
+  }
+
+  // Envoi PERSISTANT (DM ou groupe). conv = { kind, id, user }.
+  function sendMessage(conv, mid, text) {
+    var sb = SB();
+    if (!sb || !RT.uid || !conv || !text) return Promise.resolve(false);
+    var row;
+    if (conv.kind === 'group') {
+      row = { mid: mid, conv_kind: 'group', pair_key: null, group_id: conv.id, sender_id: RT.uid, recipient_id: null, body: text };
+    } else {
+      var peer = conv.user && conv.user.id;
+      if (!peer) return Promise.resolve(false);
+      row = { mid: mid, conv_kind: 'dm', pair_key: pairKey(RT.uid, peer), group_id: null, sender_id: RT.uid, recipient_id: peer, body: text };
+    }
+    return sb.from('chat_messages').insert(row).then(function (r) { return !r.error; }).catch(function () { return false; });
+  }
+
+  // Charge l'historique d'une conversation depuis la base et le fusionne.
+  function loadHistory(conv) {
+    var sb = SB(); if (!sb || !RT.uid || !conv) return Promise.resolve();
+    var q;
+    if (conv.kind === 'group') {
+      q = sb.from('chat_messages').select('*').eq('conv_kind', 'group').eq('group_id', conv.id).order('created_at', { ascending: true }).limit(300);
+    } else {
+      var peer = conv.user && conv.user.id; if (!peer) return Promise.resolve();
+      q = sb.from('chat_messages').select('*').eq('conv_kind', 'dm').eq('pair_key', pairKey(RT.uid, peer)).order('created_at', { ascending: true }).limit(300);
+    }
+    return q.then(function (res) {
+      if (res.error || !res.data) return;
+      var convId = conv.kind === 'group' ? conv.id : (conv.user && conv.user.id);
+      var changed = false;
+      res.data.forEach(function (row) {
+        var from = row.sender_id === RT.uid ? 'me' : row.sender_id;
+        if (localApply(convId, { mid: row.mid, from: from, text: row.body, ts: +new Date(row.created_at) })) changed = true;
+      });
+      if (changed) emit('censa:msg', {});
+    }).catch(function () {});
   }
 
   /* ============================================================
@@ -382,6 +493,7 @@
     placeCall: placeCall, acceptCall: acceptCall, rejectCall: rejectCall, hangUp: hangUp,
     getCall: getCall, getIncoming: getIncoming,
     setMuted: setMuted, setCamOff: setCamOff,
+    newMid: newMid, sendMessage: sendMessage, loadHistory: loadHistory,
     ready: function () { return !!SB(); },
   };
 })();

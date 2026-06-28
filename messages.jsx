@@ -226,17 +226,28 @@ function ChatBody({ me, conv, compact }) {
   const [msgs, setMsgs] = useState(() => loadChat(conv.id));
   const [text, setText] = useState('');
   const endRef = useRef(null);
-  useEffect(() => { setMsgs(loadChat(conv.id)); }, [conv.id, ver]);
+  useEffect(() => {
+    setMsgs(loadChat(conv.id));
+    // Charge l'historique persisté depuis Supabase (messages reçus hors ligne,
+    // synchronisation multi-appareils) à l'ouverture de la conversation.
+    if (window.CENSA_RT && window.CENSA_RT.ready && window.CENSA_RT.ready() && window.CENSA_RT.loadHistory) {
+      try { window.CENSA_RT.loadHistory(conv); } catch (e) {}
+    }
+  }, [conv.id]);
+  useEffect(() => { setMsgs(loadChat(conv.id)); }, [ver]);
   useEffect(() => { const el = endRef.current && endRef.current.parentElement; if (el) el.scrollTop = el.scrollHeight; }, [msgs]);
   const send = (override) => {
     const body = (override != null ? override : text).trim();
     if (!body) return;
-    const next = [...loadChat(conv.id), { from: 'me', text: body, time: chatNow(), ts: Date.now() }];
+    const RT = window.CENSA_RT;
+    const mid = (RT && RT.newMid) ? RT.newMid() : ('m_' + Date.now().toString(36));
+    const next = [...loadChat(conv.id), { mid, from: 'me', text: body, time: chatNow(), ts: Date.now() }];
     saveChat(conv.id, next); setMsgs(next); if (override == null) setText('');
-    // Livraison réelle au destinataire (DM 1:1) via le temps réel Supabase.
-    if (conv.kind === 'dm' && conv.user && conv.user.id &&
-        window.CENSA_RT && window.CENSA_RT.ready && window.CENSA_RT.ready()) {
-      try { window.CENSA_RT.sendDM(conv.user.id, body); } catch (e) {}
+    // Livraison RÉELLE + persistante (DM 1:1 ET groupes) via Supabase.
+    if (RT && RT.ready && RT.ready() && RT.sendMessage) {
+      try { RT.sendMessage(conv, mid, body); } catch (e) {}
+    } else if (conv.kind === 'dm' && conv.user && conv.user.id && RT && RT.sendDM) {
+      try { RT.sendDM(conv.user.id, body); } catch (e) {} // repli broadcast si base indisponible
     }
   };
   // réaction emoji sur un message précis (toggle)
