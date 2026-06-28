@@ -26,6 +26,7 @@ const SUPABASE_ANON_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBh
     'censa_chats', 'censa_groups', 'censa_pages', 'censa_invites',
     'censa_friends', 'censa_jobs', 'censa_help', 'censa_applied',
     'censa_applications', 'censa_market', 'censa_emoji_recent',
+    'censa_notifs',
   ];
 
   const configured =

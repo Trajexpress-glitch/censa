@@ -88,7 +88,7 @@ function lastOf(id) { const m = loadChat(id); return m.length ? m[m.length - 1] 
    Notifications
    ============================================================ */
 function Notifications({ t, items, onOpenUser }) {
-  const iconFor = { system: 'shield', watch: 'eye', like: 'heart', follow: 'user' };
+  const iconFor = { system: 'shield', watch: 'eye', like: 'heart', follow: 'user', message: 'mail', friend: 'userplus', accept: 'usercheck' };
   return (
     <div className="animate-in">
       <div style={{ padding: '18px 20px', borderBottom: '1px solid var(--border)' }}>
@@ -233,6 +233,11 @@ function ChatBody({ me, conv, compact }) {
     if (!body) return;
     const next = [...loadChat(conv.id), { from: 'me', text: body, time: chatNow(), ts: Date.now() }];
     saveChat(conv.id, next); setMsgs(next); if (override == null) setText('');
+    // Livraison réelle au destinataire (DM 1:1) via le temps réel Supabase.
+    if (conv.kind === 'dm' && conv.user && conv.user.id &&
+        window.CENSA_RT && window.CENSA_RT.ready && window.CENSA_RT.ready()) {
+      try { window.CENSA_RT.sendDM(conv.user.id, body); } catch (e) {}
+    }
   };
   // réaction emoji sur un message précis (toggle)
   const react = (idx, emoji) => {

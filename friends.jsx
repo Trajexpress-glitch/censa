@@ -127,6 +127,7 @@ function Friends({ t, members, onOpenUser, onMessage }) {
       window.CENSA_CLOUD.acceptRequest(id).then(() => {
         if (window.toggleFollow && !isFollowing(id)) toggleFollow(id);  // ami(e) visible localement
         if (window.CENSA_RT) window.CENSA_RT.pokeInvite(id);
+        if (window.CENSA_RT && window.CENSA_RT.sendNotif) window.CENSA_RT.sendNotif(id, 'accept', { fr: 'a accepté votre demande d’ami(e)', en: 'accepted your friend request' });
         reload(); ping();
       });
       return;
@@ -145,6 +146,7 @@ function Friends({ t, members, onOpenUser, onMessage }) {
       if (window.toggleFollow && !isFollowing(id)) toggleFollow(id);
       window.CENSA_CLOUD.sendFriendRequest(id).then((r) => {
         if (window.CENSA_RT) window.CENSA_RT.pokeInvite(id);
+        if (window.CENSA_RT && window.CENSA_RT.sendNotif) window.CENSA_RT.sendNotif(id, 'friend', { fr: 'vous a ajouté(e)', en: 'added you' });
         reload(); ping();
       });
       return;

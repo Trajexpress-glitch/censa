@@ -17,6 +17,27 @@
 
   function SB() { return (window.CENSA_SB && window.CENSA_SB.ready) ? window.CENSA_SB.client : null; }
   function emit(name, detail) { try { window.dispatchEvent(new CustomEvent(name, { detail: detail })); } catch (e) {} }
+  function hhmm() { var d = new Date(); return ('0' + d.getHours()).slice(-2) + ':' + ('0' + d.getMinutes()).slice(-2); }
+
+  /* ---------------- notifications (stockage local + diffusion) ----------------
+     Conservées dans localStorage 'censa_notifs' (synchronisé par compte via
+     supabase.jsx). Toute écriture émet 'censa:notif-new' pour rafraîchir la
+     cloche et la page Notifications instantanément. ------------------------- */
+  function readNotifs() { try { var v = JSON.parse(localStorage.getItem('censa_notifs')); return Array.isArray(v) ? v : []; } catch (e) { return []; } }
+  function writeNotifs(a) { try { localStorage.setItem('censa_notifs', JSON.stringify(a.slice(0, 80))); } catch (e) {} emit('censa:notif-new', {}); }
+  function addNotif(n) {
+    var a = readNotifs();
+    n.id = n.id || ('n_' + Date.now().toString(36) + Math.random().toString(36).slice(2, 6));
+    n.ts = n.ts || Date.now();
+    n.read = false;
+    a.unshift(n);
+    writeNotifs(a);
+  }
+  function markNotifsRead() { var a = readNotifs(); var ch = false; a.forEach(function (n) { if (!n.read) { n.read = true; ch = true; } }); if (ch) writeNotifs(a); }
+  window.CENSA_NOTIFS = {
+    get: readNotifs, add: addNotif, markRead: markNotifsRead,
+    unread: function () { return readNotifs().filter(function (n) { return !n.read; }).length; },
+  };
 
   var ICE = { iceServers: [
     { urls: 'stun:stun.l.google.com:19302' },
@@ -66,6 +87,8 @@
       p.on('broadcast', { event: 'invite' }, function () { emit('censa:friendreq-remote'); });
       p.on('broadcast', { event: 'call-offer' }, function (m) { onIncomingOffer(m.payload); });
       p.on('broadcast', { event: 'call-cancel' }, function (m) { onRemoteCancel(m.payload); });
+      p.on('broadcast', { event: 'dm' }, function (m) { onIncomingDM(m.payload); });
+      p.on('broadcast', { event: 'notif' }, function (m) { onIncomingNotif(m.payload); });
       p.subscribe();
       RT.personal = p;
     } catch (e) {}
@@ -99,6 +122,55 @@
 
   // Notifie un membre qu'il a reçu une demande d'ami(e).
   function pokeInvite(toId) { if (toId) sendToPeer(toId, 'invite', { from: RT.uid }); }
+
+  /* ============================================================
+     MESSAGES PRIVÉS + NOTIFICATIONS (diffusion temps réel)
+     ------------------------------------------------------------
+     Un message envoyé à un pair arrive sur SON canal personnel ;
+     il l'écrit dans son propre 'censa_chats' (donc la conversation
+     apparaît immédiatement chez lui) et reçoit une notification.
+     ============================================================ */
+  function meBrief() { return myUserBrief(); }
+
+  // Envoi d'un message privé à peerId (id de profil Supabase).
+  function sendDM(peerId, text) {
+    if (!peerId || !RT.uid || !text) return;
+    sendToPeer(peerId, 'dm', { from: RT.uid, fromUser: meBrief(), text: text, time: hhmm(), ts: Date.now() });
+  }
+
+  // Envoi d'une notification arbitraire à peerId. text = { fr, en }.
+  function sendNotif(peerId, type, text) {
+    if (!peerId || !RT.uid) return;
+    sendToPeer(peerId, 'notif', { from: RT.uid, fromUser: meBrief(), type: type || 'system', text: text || { fr: '', en: '' } });
+  }
+
+  // Réception d'un message privé : on l'ajoute à NOTRE 'censa_chats' sous la
+  // clé = id de l'expéditeur (= la conversation 1:1 avec lui).
+  function onIncomingDM(payload) {
+    if (!payload || !payload.from) return;
+    var fu = payload.fromUser || { id: payload.from };
+    try { if (window.CENSA_CLOUD && fu && fu.name) window.CENSA_CLOUD.registerUser(fu); } catch (e) {}
+    var convId = payload.from;
+    try {
+      var all = JSON.parse(localStorage.getItem('censa_chats')) || {};
+      if (!all || typeof all !== 'object') all = {};
+      var arr = Array.isArray(all[convId]) ? all[convId] : [];
+      arr.push({ from: payload.from, text: payload.text || '', time: payload.time || hhmm(), ts: payload.ts || Date.now() });
+      all[convId] = arr;
+      localStorage.setItem('censa_chats', JSON.stringify(all));
+    } catch (e) {}
+    emit('censa:msg', {});
+    addNotif({ type: 'message', user: payload.from, fromUser: fu,
+      text: { fr: 'vous a envoyé un message', en: 'sent you a message' } });
+  }
+
+  // Réception d'une notification (demande d'ami(e), j'aime, etc.).
+  function onIncomingNotif(payload) {
+    if (!payload) return;
+    var fu = payload.fromUser;
+    try { if (window.CENSA_CLOUD && fu && fu.name) window.CENSA_CLOUD.registerUser(fu); } catch (e) {}
+    addNotif({ type: payload.type || 'system', user: payload.from || 'system', fromUser: fu, text: payload.text || { fr: '', en: '' } });
+  }
 
   /* ============================================================
      APPELS — WebRTC
@@ -306,6 +378,7 @@
     start: start, stop: stop,
     isOnline: isOnline, onlineIds: onlineIds,
     pokeInvite: pokeInvite,
+    sendDM: sendDM, sendNotif: sendNotif,
     placeCall: placeCall, acceptCall: acceptCall, rejectCall: rejectCall, hangUp: hangUp,
     getCall: getCall, getIncoming: getIncoming,
     setMuted: setMuted, setCamOff: setCamOff,

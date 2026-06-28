@@ -311,6 +311,7 @@ function App() {
   const [storyComposer, setStoryComposer] = useState(false);
   const [members, setMembers] = useState([]);
   const [memberSearch, setMemberSearch] = useState(false);
+  const [notifs, setNotifs] = useState(() => (window.CENSA_NOTIFS ? window.CENSA_NOTIFS.get() : []));
   const score = (me && typeof me.score === 'number') ? me.score : 100;
   const [payNotice, setPayNotice] = useState(null);
 
@@ -497,6 +498,28 @@ function App() {
     return () => { stopped = true; clearInterval(poll); window.removeEventListener('censa:friendreq-remote', onReq); window.removeEventListener('censa:friendreq', onReq); window.removeEventListener('censa:presence', onPresence); };
   }, [authed]);
 
+  // Notifications en direct : se rafraîchit à chaque événement (message reçu,
+  // demande d'ami(e), j'aime…) et quand l'état du compte est resynchronisé.
+  useEffect(() => {
+    const reload = () => setNotifs(window.CENSA_NOTIFS ? window.CENSA_NOTIFS.get().slice() : []);
+    reload();
+    window.addEventListener('censa:notif-new', reload);
+    window.addEventListener('storage', reload);
+    return () => { window.removeEventListener('censa:notif-new', reload); window.removeEventListener('storage', reload); };
+  }, [authed]);
+
+  // Marque les notifications comme lues dès qu'on ouvre l'onglet dédié.
+  useEffect(() => {
+    if (route === 'notifs' && window.CENSA_NOTIFS) {
+      window.CENSA_NOTIFS.markRead();
+      setNotifs(window.CENSA_NOTIFS.get().slice());
+    }
+  }, [route]);
+
+  const unreadNotifs = notifs.filter(n => !n.read).length;
+  const notifTime = (ts) => { try { return (window.CENSA_CLOUD && ts) ? window.CENSA_CLOUD.relTime(ts) : ''; } catch (e) { return ''; } };
+  const notifItems = notifs.map(n => ({ ...n, time: n.time || notifTime(n.ts) }));
+
   const updateMe = (patch) => setMe(m => { const next = { ...m, ...patch }; try { localStorage.setItem('censa_account', JSON.stringify(next)); } catch (e) {} setCensaMe(next); if (window.CENSA_SB && window.CENSA_SB.ready) window.CENSA_SB.saveProfile(next); return next; });
 
   const addStory = () => setStoryComposer(true);
@@ -544,7 +567,7 @@ function App() {
   function logout() { try { window.CENSA_RT && window.CENSA_RT.stop(); } catch (e) {} if (window.CENSA_SB && window.CENSA_SB.ready) window.CENSA_SB.signOut(); localStorage.removeItem('censa_auth'); setCensaMe(ME); setAuthed(false); setViewUser(null); setRoute('home'); }
 
   function deleteAccount() {
-    ['censa_account', 'censa_auth', 'censa_posts', 'censa_stories', 'censa_videos', 'censa_friends', 'censa_invites', 'censa_chats', 'censa_jobs', 'censa_help', 'censa_groups', 'censa_pages', 'censa_applied', 'censa_applications', 'censa_job_feature_pending', 'censa_market', 'censa_market_feature_pending'].forEach(k => { try { localStorage.removeItem(k); } catch (e) {} });
+    ['censa_account', 'censa_auth', 'censa_posts', 'censa_stories', 'censa_videos', 'censa_friends', 'censa_invites', 'censa_chats', 'censa_notifs', 'censa_jobs', 'censa_help', 'censa_groups', 'censa_pages', 'censa_applied', 'censa_applications', 'censa_job_feature_pending', 'censa_market', 'censa_market_feature_pending'].forEach(k => { try { localStorage.removeItem(k); } catch (e) {} });
     setMe(ME); setCensaMe(ME); setAuthed(false); setViewUser(null); setRoute('home');
   }
 
@@ -566,7 +589,7 @@ function App() {
   else if (route === 'home') center = <div className="center-pad"><Feed t={t} me={me} posts={posts} onOpen={openThread} onPost={addPost} stories={visibleStories} onAddStory={addStory} onOpenStory={(i) => setStoryIndex(i)} /></div>;
   else if (route === 'videos') center = <VideosPage t={t} me={me} videos={videos} onPersist={addVideo} />;
   else if (route === 'explore') center = <Explore t={t} posts={posts} onOpen={openThread} onOpenUser={openUser} />;
-  else if (route === 'notifs') center = <Notifications t={t} items={NOTIFS} onOpenUser={openUser} />;
+  else if (route === 'notifs') center = <Notifications t={t} items={notifItems} onOpenUser={openUser} />;
   else if (route === 'messages') center = <Messages t={t} me={me} go={go} />;
   else if (route === 'ads') center = <Ads t={t} go={go} me={me} posts={posts} />;
   else if (route === 'friends') center = <Friends t={t} members={members} onOpenUser={openUser} onMessage={(m) => { if (m && m.id && typeof openChatWindow === 'function') openChatWindow({ kind: 'dm', id: m.id }); else go('messages'); }} />;
@@ -583,10 +606,10 @@ function App() {
   return (
     <Backdrop tw={tw}>
       <div className="appshell">
-        <AppHeader t={t} me={me} route={route} go={go} unread={NOTIFS.length} lang={lang} onLang={(v) => setTweak('lang', v)} onSignOut={logout} onSearch={() => setMemberSearch(true)} />
+        <AppHeader t={t} me={me} route={route} go={go} unread={unreadNotifs} lang={lang} onLang={(v) => setTweak('lang', v)} onSignOut={logout} onSearch={() => setMemberSearch(true)} />
         <div className="shell">
           <div className="shell-inner">
-            <LeftNav t={t} route={route} go={go} me={me} onCompose={compose} score={score} unread={NOTIFS.length} onSignOut={logout} />
+            <LeftNav t={t} route={route} go={go} me={me} onCompose={compose} score={score} unread={unreadNotifs} onSignOut={logout} />
             <main className="center">
               {showHead && (
                 <div className="center-head">
@@ -598,7 +621,7 @@ function App() {
             <RightRail t={t} onOpenUser={openUser} go={go} members={members} route={route} onSearch={() => setMemberSearch(true)} />
           </div>
         </div>
-        <BottomNav t={t} route={route} go={go} onCompose={compose} unread={NOTIFS.length} />
+        <BottomNav t={t} route={route} go={go} onCompose={compose} unread={unreadNotifs} />
         <Messenger t={t} me={me} />
       </div>
       {storyIndex != null && visibleStories[storyIndex] && (

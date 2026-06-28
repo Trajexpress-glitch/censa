@@ -95,20 +95,6 @@ function ReactionButton({ post }) {
       </button>
     </span>
   );
-   supabase
-  .channel("groups")
-  .on(
-    "postgres_changes",
-    {
-      event: "*",
-      schema: "public",
-      table: "groups",
-    },
-    (payload) => {
-      console.log(payload);
-    }
-  )
-  .subscribe();
 }
 
 Object.assign(window, { REACTIONS, REACT_BY_KEY, ReactionButton, isEmojiOnly, graphemeCount });
