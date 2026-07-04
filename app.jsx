@@ -66,7 +66,7 @@ function LeftNav({ t, route, go, me, onCompose, score, unread, onSignOut }) {
   );
 }
 
-function RightRail({ t, onOpenUser, go, members, onSearch, route }) {
+function RightRail({ t, onOpenUser, go, members, onSearch, route, pages, onOpenPage }) {
   const { ids: followIds } = useFollow();
   const friends = (members || []).filter(u => !u.system && followIds.indexOf(u.id) !== -1);
   return (
@@ -78,16 +78,22 @@ function RightRail({ t, onOpenUser, go, members, onSearch, route }) {
 
       {route !== 'groups' && <AdsPromo t={t} go={go} />}
 
-      {/* trends */}
+      {/* dernières pages créées — visibles par tous les membres */}
       <div className="rail-card">
-        <div style={{ padding: '14px 16px 6px', fontWeight: 700, fontSize: 16, fontFamily: 'var(--font-brand)' }}>{t.trends}</div>
-        {TRENDS.length ? TRENDS.map((tr, i) => (
-          <button key={i} className="hoverable" style={{ display: 'block', width: '100%', textAlign: 'left', padding: '10px 16px', border: 'none', background: 'none' }}>
-            <div className="mono" style={{ fontSize: 10.5, color: 'var(--text-faint)', letterSpacing: '.04em' }}>{L(tr.meta).toUpperCase()}</div>
-            <div className="glitchy" style={{ fontSize: 15, fontWeight: 600, color: 'var(--text)', marginTop: 2 }}>{L(tr.tag)}</div>
-            <div style={{ fontSize: 12.5, color: 'var(--text-faint)', marginTop: 1 }}>{tr.count} {L({ fr: 'mentions surveillées', en: 'monitored mentions' })}</div>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '14px 16px 8px' }}>
+          <span style={{ fontWeight: 700, fontSize: 16, fontFamily: 'var(--font-brand)', flex: 1 }}>{L({ fr: 'Nouvelles pages', en: 'New pages' })}</span>
+          <button className="btn" onClick={() => go('pages')} style={{ padding: '6px 12px', fontSize: 12.5 }}>{L({ fr: 'Voir tout', en: 'See all' })}</button>
+        </div>
+        {(pages && pages.length) ? pages.slice(0, 3).map(p => (
+          <button key={p.id} className="hoverable" onClick={() => onOpenPage(p)}
+            style={{ display: 'flex', alignItems: 'center', gap: 11, padding: '10px 16px', width: '100%', border: 'none', background: 'none', textAlign: 'left', cursor: 'pointer' }}>
+            <PageLogo logoKey={p.logoKey} name={p.name} hue={p.hue} size={42} ring={false} />
+            <div style={{ flex: 1, minWidth: 0 }}>
+              <div style={{ fontWeight: 600, fontSize: 14, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{p.name}</div>
+              <div className="mono" style={{ fontSize: 11.5, color: 'var(--accent)' }}>{L(pageCatLabel(p.category)).toUpperCase()}</div>
+            </div>
           </button>
-        )) : <div className="mono" style={{ padding: '2px 16px 14px', fontSize: 12, color: 'var(--text-faint)' }}>{t.empty_trends}</div>}
+        )) : <div className="mono" style={{ padding: '2px 16px 14px', fontSize: 12, color: 'var(--text-faint)' }}>{L({ fr: 'Aucune page pour l’instant.', en: 'No pages yet.' })}</div>}
       </div>
 
       {/* amis en ligne */}
@@ -229,6 +235,9 @@ function AppHeader({ t, me, route, go, unread, lang, onLang, onSignOut, onSearch
   return (
     <header className="appheader">
       <button className="hd-logo" onClick={() => go('home')}><Hex size={30} /><span className="hd-word">CENSA</span></button>
+      <button className={'hd-emploi' + (route === 'pages' ? ' active' : '')} onClick={() => go('pages')}>
+        <Icon name="bag" size={18} fill={route === 'pages'} /> <span>{L({ fr: 'Pages', en: 'Pages' })}</span>
+      </button>
       <button className={'hd-emploi' + (route === 'jobs' ? ' active' : '')} onClick={() => go('jobs')}>
         <Icon name="work" size={18} fill={route === 'jobs'} /> <span>{L({ fr: 'Emploi', en: 'Jobs' })}</span>
       </button>
@@ -311,6 +320,8 @@ function App() {
   const [storyComposer, setStoryComposer] = useState(false);
   const [members, setMembers] = useState([]);
   const [memberSearch, setMemberSearch] = useState(false);
+  const [pages, setPages] = useState([]);
+  const [openPageId, setOpenPageId] = useState(null);
   const [notifs, setNotifs] = useState(() => (window.CENSA_NOTIFS ? window.CENSA_NOTIFS.get() : []));
   const score = (me && typeof me.score === 'number') ? me.score : 100;
   const [payNotice, setPayNotice] = useState(null);
@@ -461,6 +472,18 @@ function App() {
     try { const m = await window.CENSA_CLOUD.loadProfiles(); if (Array.isArray(m)) setMembers(m); } catch (e) {}
   }
 
+  // charge les pages CENSA — partagées : visibles par tous les membres
+  // (utilisées par le menu « Pages » et la liste « Nouvelles pages » à droite).
+  async function loadPagesList() {
+    if (window.CENSA_CLOUD && window.CENSA_CLOUD.ready()) {
+      try { const v = await window.CENSA_CLOUD.loadPages(); if (Array.isArray(v)) setPages(v); } catch (e) {}
+    } else if (typeof readPages === 'function') {
+      setPages(readPages());
+    }
+  }
+  useEffect(() => { if (authed) loadPagesList(); }, [authed]);
+  const openPage = (p) => { setOpenPageId(p.id); go('pages'); };
+
   // Synchronise la liste d'ami(e)s PARTAGÉE (Supabase) → suivi local, afin que
   // le fil, la messagerie et la colonne « en ligne » voient les vrais ami(e)s.
   async function syncFriends() {
@@ -490,7 +513,7 @@ function App() {
       const uid = SB._uid;
       if (!uid) { setTimeout(begin, 400); return; }
       try { window.CENSA_RT && window.CENSA_RT.start(uid); } catch (e) {}
-      syncFriends(); loadMembers();
+      syncFriends(); loadMembers(); loadPagesList();
     };
     begin();
     const onReq = () => { syncFriends(); loadMembers(); };
@@ -501,7 +524,7 @@ function App() {
     window.addEventListener('censa:friendreq', onReq);
     window.addEventListener('censa:presence', onPresence);
     // rafraîchissement régulier de l'annuaire + des ami(e)s (filet de sécurité)
-    const poll = setInterval(() => { syncFriends(); loadMembers(); refreshFeed(); }, 15000);
+    const poll = setInterval(() => { syncFriends(); loadMembers(); refreshFeed(); loadPagesList(); }, 15000);
     return () => { stopped = true; clearInterval(poll); window.removeEventListener('censa:friendreq-remote', onReq); window.removeEventListener('censa:friendreq', onReq); window.removeEventListener('censa:presence', onPresence); };
   }, [authed]);
 
@@ -614,7 +637,7 @@ function App() {
   else if (route === 'ads') center = <Ads t={t} go={go} me={me} posts={posts} />;
   else if (route === 'friends') center = <Friends t={t} members={members} onOpenUser={openUser} onMessage={(m) => { if (m && m.id && typeof openChatWindow === 'function') openChatWindow({ kind: 'dm', id: m.id }); else go('messages'); }} />;
   else if (route === 'groups') center = <Groups t={t} me={me} />;
-  else if (route === 'pages') center = <Pages t={t} me={me} />;
+  else if (route === 'pages') center = <Pages t={t} me={me} initialOpenId={openPageId} onConsumeInitial={() => setOpenPageId(null)} />;
   else if (route === 'jobs') center = <Jobs t={t} me={me} />;
   else if (route === 'market') center = <Market t={t} me={me} onMessageUser={(uid) => { if (uid && uid !== me.id && typeof openChatWindow === 'function') openChatWindow({ kind: 'dm', id: uid }); else go('messages'); }} />;
   else if (route === 'settings') center = <Settings t={t} me={me} onUpdateMe={updateMe} onDeleteAccount={deleteAccount} />;
@@ -638,7 +661,7 @@ function App() {
               )}
               {center}
             </main>
-            <RightRail t={t} onOpenUser={openUser} go={go} members={members} route={route} onSearch={() => setMemberSearch(true)} />
+            <RightRail t={t} onOpenUser={openUser} go={go} members={members} route={route} onSearch={() => setMemberSearch(true)} pages={pages} onOpenPage={openPage} />
           </div>
         </div>
         <BottomNav t={t} route={route} go={go} onCompose={compose} unread={unreadNotifs} />

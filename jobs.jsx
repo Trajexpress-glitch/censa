@@ -89,6 +89,11 @@ function commitPendingFeature() {
   jobs[idx] = { ...jobs[idx], featuredUntil: Date.now() + (pend.hours || 24) * 3600000 };
   writeJobs(jobs);
   clearFeaturePending();
+  // Best-effort : si le mode partagé (Supabase) est actif, synchronise
+  // aussi la mise en avant côté serveur pour que tous les membres la voient.
+  if (window.CENSA_CLOUD && window.CENSA_CLOUD.ready() && typeof window.CENSA_CLOUD.featureJob === 'function') {
+    window.CENSA_CLOUD.featureJob(pend.jobId, pend.hours || 24).catch(function () {});
+  }
   try { sessionStorage.setItem('censa_job_featured', '1'); } catch (e) {}
   return jobs[idx];
 }
@@ -437,9 +442,10 @@ function PostJobForm({ me, onPublish }) {
    Page Emploi
    ============================================================ */
 function Jobs({ t, me }) {
+  const cloud = window.CENSA_CLOUD && window.CENSA_CLOUD.ready();
   const [tab, setTab] = useState('browse');
   const [query, setQuery] = useState('');
-  const [mine, setMine] = useState(readJobs);
+  const [mine, setMine] = useState(() => cloud ? [] : readJobs());
   const [applied, setApplied] = useState(readApplied);
   const [applyJob, setApplyJob] = useState(null);     // offre en cours de candidature
   const [featureJob, setFeatureJob] = useState(null); // offre en cours de mise en avant
@@ -449,6 +455,7 @@ function Jobs({ t, me }) {
     return '';
   });
   useEffect(() => { if (flash) { const id = setTimeout(() => setFlash(''), 4000); return () => clearTimeout(id); } }, [flash]);
+  useEffect(() => { if (cloud) window.CENSA_CLOUD.loadJobs().then(v => { if (Array.isArray(v)) setMine(v); }); }, []);
 
   const all = [...mine, ...JOBS];
   const q = query.trim().toLowerCase();
@@ -459,11 +466,18 @@ function Jobs({ t, me }) {
     return (b.ts || 0) - (a.ts || 0);
   });
 
-  const publish = (job) => {
+  const publish = async (job) => {
+    if (cloud) {
+      const saved = await window.CENSA_CLOUD.createJob(job);
+      if (saved) { setMine(m => [saved, ...m]); setTab('browse'); setFlash(L({ fr: 'Annonce publiée — gratuitement.', en: 'Job published — for free.' })); return; }
+    }
     const next = [job, ...mine]; setMine(next); writeJobs(next);
     setTab('browse'); setFlash(L({ fr: 'Annonce publiée — gratuitement.', en: 'Job published — for free.' }));
   };
-  const removeJob = (id) => { const next = mine.filter(j => j.id !== id); setMine(next); writeJobs(next); };
+  const removeJob = async (id) => {
+    if (cloud) { await window.CENSA_CLOUD.deleteJob(id); setMine(m => m.filter(j => j.id !== id)); return; }
+    const next = mine.filter(j => j.id !== id); setMine(next); writeJobs(next);
+  };
   const onSent = (jobId) => {
     setApplied(readApplied());
     setApplyJob(null);
@@ -476,7 +490,7 @@ function Jobs({ t, me }) {
   return (
     <div className="animate-in">
       <SectionHead icon="work" title={L({ fr: 'Emploi', en: 'Jobs' })}
-        sub={L({ fr: 'Publiez gratuitement. Mettez en avant si vous le souhaitez.', en: 'Post for free. Promote if you wish.' })} />
+        sub={L({ fr: 'Publiez gratuitement. Visible par tous les membres de CENSA.', en: 'Post for free. Visible to all CENSA members.' })} />
 
       <div style={{ display: 'flex', borderBottom: '1px solid var(--border)' }}>
         <button className={'tab' + (tab === 'browse' ? ' active' : '')} onClick={() => setTab('browse')}>{L({ fr: 'Offres', en: 'Listings' })}</button>

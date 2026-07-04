@@ -299,6 +299,110 @@
   }
 
   /* ============================================================
+     PAGES  (censa_pages) — PARTAGÉ : toute page créée par un membre
+     est visible par tous, ainsi que ses actualités et abonnés.
+     ============================================================ */
+  function mapPage(row) {
+    const d = row.data || {};
+    const mine = row.owner_id === uid();
+    return Object.assign({}, d, {
+      id: row.id,
+      ownerId: mine ? 'me' : row.owner_id,
+      ts: d.ts || new Date(row.created_at).getTime(),
+    });
+  }
+
+  async function loadPages() {
+    const sb = SB(); if (!sb) return null;
+    const r = await sb.from('pages').select('*').order('created_at', { ascending: false }).limit(200);
+    if (r.error) { console.warn('loadPages', r.error.message); return null; }
+    return (r.data || []).map(mapPage);
+  }
+
+  async function pageForStore(p) {
+    const data = Object.assign({}, p);
+    data.ownerId = (p.ownerId && p.ownerId !== 'me') ? p.ownerId : uid();
+    if (data.coverKey) data.coverKey = await uploadMedia(data.coverKey);
+    if (data.logoKey) data.logoKey = await uploadMedia(data.logoKey);
+    delete data.id;
+    return data;
+  }
+
+  async function createPage(p) {
+    const sb = SB(); if (!sb || !uid()) return null;
+    const data = await pageForStore(p);
+    const r = await sb.from('pages').insert({ owner_id: uid(), name: p.name || '', data: data }).select('*').single();
+    if (r.error) { console.warn('createPage', r.error.message); return null; }
+    return mapPage(r.data);
+  }
+
+  async function updatePage(p) {
+    const sb = SB(); if (!sb) return null;
+    const data = await pageForStore(p);
+    const r = await sb.from('pages').update({ name: p.name || '', data: data }).eq('id', p.id).select('*').single();
+    if (r.error) { console.warn('updatePage', r.error.message); return null; }
+    return mapPage(r.data);
+  }
+
+  async function deletePage(id) {
+    const sb = SB(); if (!sb) return;
+    await sb.from('pages').delete().eq('id', id);
+  }
+
+  /* ============================================================
+     EMPLOI  (censa_jobs) — PARTAGÉ : toute annonce publiée par un
+     membre est visible par tous les membres du site.
+     ============================================================ */
+  function mapJob(row) {
+    const d = row.data || {};
+    const mine = row.author_id === uid();
+    return Object.assign({}, d, {
+      id: row.id,
+      mine: mine,
+      featuredUntil: row.featured_until ? new Date(row.featured_until).getTime() : (d.featuredUntil || 0),
+      ts: d.ts || new Date(row.created_at).getTime(),
+    });
+  }
+
+  async function loadJobs() {
+    const sb = SB(); if (!sb) return null;
+    const r = await sb.from('jobs').select('*').order('created_at', { ascending: false }).limit(200);
+    if (r.error) { console.warn('loadJobs', r.error.message); return null; }
+    return (r.data || []).map(mapJob);
+  }
+
+  async function createJob(j) {
+    const sb = SB(); if (!sb || !uid()) return null;
+    const data = Object.assign({}, j, { mine: undefined });
+    delete data.id;
+    const r = await sb.from('jobs').insert({
+      author_id: uid(),
+      title: (j.title && j.title.fr) || '',
+      company: j.company || '',
+      location: (j.location && j.location.fr) || '',
+      type: (j.type && j.type.fr) || '',
+      salary: j.salary || '',
+      description: (j.desc && j.desc.fr) || '',
+      data: data,
+    }).select('*').single();
+    if (r.error) { console.warn('createJob', r.error.message); return null; }
+    return mapJob(r.data);
+  }
+
+  async function deleteJob(id) {
+    const sb = SB(); if (!sb) return;
+    await sb.from('jobs').delete().eq('id', id);
+  }
+
+  async function featureJob(id, hours) {
+    const sb = SB(); if (!sb) return null;
+    const until = new Date(Date.now() + (hours || 24) * 3600000).toISOString();
+    const r = await sb.from('jobs').update({ featured_until: until }).eq('id', id).select('*').single();
+    if (r.error) { console.warn('featureJob', r.error.message); return null; }
+    return mapJob(r.data);
+  }
+
+  /* ============================================================
      MEMBRES PRÉSENTS — annuaire des profils réels inscrits.
      Sert aux suggestions « Présents sur CENSA » (à suivre, facultatif).
      ============================================================ */
@@ -436,6 +540,8 @@
     loadStories, createStory,
     loadMarket, createMarket, deleteMarket,
     loadGroups, createGroup, updateGroup, deleteGroup,
+    loadPages, createPage, updatePage, deletePage,
+    loadJobs, createJob, deleteJob, featureJob,
     loadProfiles,
     loadFriendData, loadFriendIds,
     sendFriendRequest, acceptRequest, declineRequest, cancelRequest, removeFriend,

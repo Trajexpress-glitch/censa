@@ -262,15 +262,30 @@ function PageDetail({ p, me, onBack, onUpdate, onDelete }) {
 }
 
 /* ---------------- page Pages ---------------- */
-function Pages({ t, me }) {
-  const [pages, setPages] = useState(readPages);
+function Pages({ t, me, initialOpenId, onConsumeInitial }) {
+  const cloud = window.CENSA_CLOUD && window.CENSA_CLOUD.ready();
+  const [pages, setPages] = useState(() => cloud ? [] : readPages());
   const [creating, setCreating] = useState(false);
-  const [openId, setOpenId] = useState(null);
+  const [openId, setOpenId] = useState(initialOpenId || null);
 
-  const persist = (v) => { setPages(v); writePages(v); };
-  const create = (p) => { persist([p, ...pages]); setCreating(false); setOpenId(p.id); };
-  const update = (p) => persist(pages.map(x => x.id === p.id ? p : x));
-  const remove = (id) => { persist(pages.filter(x => x.id !== id)); setOpenId(null); };
+  useEffect(() => { if (cloud) window.CENSA_CLOUD.loadPages().then(v => { if (Array.isArray(v)) setPages(v); }); }, []);
+  useEffect(() => {
+    if (initialOpenId) { setOpenId(initialOpenId); if (onConsumeInitial) onConsumeInitial(); }
+  }, [initialOpenId]);
+
+  const persist = (v) => { setPages(v); if (!cloud) writePages(v); };
+  const create = async (p) => {
+    if (cloud) { const saved = await window.CENSA_CLOUD.createPage(p); if (saved) { setPages(ps => [saved, ...ps]); setCreating(false); setOpenId(saved.id); return; } }
+    persist([p, ...pages]); setCreating(false); setOpenId(p.id);
+  };
+  const update = async (p) => {
+    if (cloud) { const saved = await window.CENSA_CLOUD.updatePage(p); if (saved) { setPages(ps => ps.map(x => x.id === saved.id ? saved : x)); return; } }
+    persist(pages.map(x => x.id === p.id ? p : x));
+  };
+  const remove = async (id) => {
+    if (cloud) { await window.CENSA_CLOUD.deletePage(id); setPages(ps => ps.filter(x => x.id !== id)); setOpenId(null); return; }
+    persist(pages.filter(x => x.id !== id)); setOpenId(null);
+  };
 
   const open = openId && pages.find(p => p.id === openId);
   if (open) return <PageDetail p={open} me={me} onBack={() => setOpenId(null)} onUpdate={update} onDelete={remove} />;
@@ -278,7 +293,7 @@ function Pages({ t, me }) {
   return (
     <div className="animate-in">
       <SectionHead icon="bag" title={L({ fr: 'Pages', en: 'Pages' })}
-        sub={L({ fr: 'Une activité professionnelle ? Créez votre page CENSA.', en: 'Run a business? Create your CENSA page.' })} />
+        sub={L({ fr: 'Toutes les pages créées par les membres de CENSA, visibles par tous.', en: 'All pages created by CENSA members, visible to everyone.' })} />
 
       <div style={{ padding: 18, display: 'flex', flexDirection: 'column', gap: 16 }}>
         <button className="card hoverable" onClick={() => setCreating(true)}
