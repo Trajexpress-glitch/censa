@@ -145,6 +145,37 @@
     return m;
   }
 
+  /* ---------- réactions (j'adhère / j'adore / haha / wouah / triste / grr), PARTAGÉES ---------- */
+  // Compte total de réactions par publication, tous membres confondus.
+  async function loadReactionCounts() {
+    const sb = SB(); if (!sb) return {};
+    const r = await sb.from('reactions').select('post_id').limit(8000);
+    if (r.error) { console.warn('loadReactionCounts', r.error.message); return {}; }
+    const m = {};
+    (r.data || []).forEach(function (x) { m[x.post_id] = (m[x.post_id] || 0) + 1; });
+    return m;
+  }
+  // Ma propre réaction par publication → { postId: 'love' | 'haha' | ... }
+  async function loadMyReactions() {
+    const sb = SB(); const me = uid(); if (!sb || !me) return {};
+    const r = await sb.from('reactions').select('post_id,reaction').eq('user_id', me).limit(4000);
+    if (r.error) { console.warn('loadMyReactions', r.error.message); return {}; }
+    const m = {};
+    (r.data || []).forEach(function (x) { m[x.post_id] = x.reaction; });
+    return m;
+  }
+  // Pose/change ma réaction (reaction=null → la retire).
+  async function setReaction(postId, reaction) {
+    const sb = SB(); const me = uid(); if (!sb || !me || !postId) return false;
+    if (!reaction) {
+      const r = await sb.from('reactions').delete().eq('post_id', postId).eq('user_id', me);
+      return !r.error;
+    }
+    const r = await sb.from('reactions').upsert({ post_id: postId, user_id: me, reaction: reaction }, { onConflict: 'post_id,user_id' });
+    if (r.error) { console.warn('setReaction', r.error.message); return false; }
+    return true;
+  }
+
   async function createPost(post) {
     const sb = SB(); if (!sb || !uid()) return null;
     let media = post.media || null;
@@ -537,6 +568,7 @@
     ready, registerUser, relTime, uploadMedia,
     loadPosts, createPost,
     loadComments, addComment, loadCommentCounts,
+    loadReactionCounts, loadMyReactions, setReaction,
     loadStories, createStory,
     loadMarket, createMarket, deleteMarket,
     loadGroups, createGroup, updateGroup, deleteGroup,

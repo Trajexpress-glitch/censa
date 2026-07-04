@@ -43,30 +43,46 @@ function writeReaction(postId, val) {
   try { localStorage.setItem(REACT_STORE, JSON.stringify(all)); } catch (e) {}
 }
 
-/* Bouton de réaction animé pour une publication. */
+/* Bouton de réaction animé pour une publication.
+   Partagé via Supabase quand disponible (post.reactions = total tous
+   membres confondus, post.myReaction = ma réaction connue du serveur) ;
+   sinon repli localStorage (mode hors-ligne / démo). */
 function ReactionButton({ post }) {
-  const [reaction, setReaction] = useState(() => readReactions()[post.id] || null);
+  const cloudOn = () => window.CENSA_CLOUD && window.CENSA_CLOUD.ready();
+  const [reaction, setReaction] = useState(() => (post.myReaction !== undefined ? post.myReaction : readReactions()[post.id]) || null);
+  // garde trace de ce que le serveur connaissait AVANT mon geste local, pour
+  // ajuster le compteur agrégé sans double-compter en attendant le refresh.
+  const knownMine = useRef(post.myReaction !== undefined ? (post.myReaction || null) : null);
+  useEffect(() => {
+    if (post.myReaction !== undefined) { knownMine.current = post.myReaction || null; setReaction(post.myReaction || null); }
+  }, [post.myReaction, post.id]);
   const [open, setOpen] = useState(false);
   const [flies, setFlies] = useState([]);
   const timer = useRef(null);
   const press = useRef(null);
   const r = reaction ? REACT_BY_KEY[reaction] : null;
-  const count = (post.likes || 0) + (reaction ? 1 : 0);
+  const baseCount = post.reactions != null ? post.reactions : (post.likes || 0);
+  const delta = (reaction ? 1 : 0) - (knownMine.current ? 1 : 0);
+  const count = Math.max(0, baseCount + delta);
 
   useEffect(() => () => { clearTimeout(timer.current); clearTimeout(press.current); }, []);
 
+  const persist = (val) => {
+    if (cloudOn()) window.CENSA_CLOUD.setReaction(post.id, val).catch(() => {});
+    else writeReaction(post.id, val);
+  };
   const fly = (emoji) => {
     const id = Date.now() + Math.random();
     setFlies(f => [...f, { id, emoji }]);
     setTimeout(() => setFlies(f => f.filter(x => x.id !== id)), 1100);
   };
   const pick = (key) => {
-    setReaction(key); writeReaction(post.id, key); setOpen(false);
+    setReaction(key); persist(key); setOpen(false);
     fly(REACT_BY_KEY[key].emoji);
   };
   const toggle = () => {
     if (press.current === 'opened') { press.current = null; return; }
-    if (reaction) { setReaction(null); writeReaction(post.id, null); }
+    if (reaction) { setReaction(null); persist(null); }
     else pick('like');
   };
 

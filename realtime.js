@@ -260,6 +260,15 @@
       ch.on('postgres_changes', { event: 'INSERT', schema: 'public', table: 'posts' }, function (p) { emit('censa:feed-new', { row: p.new }); });
       ch.on('postgres_changes', { event: 'INSERT', schema: 'public', table: 'stories' }, function (p) { emit('censa:story-new', { row: p.new }); });
       ch.on('postgres_changes', { event: 'INSERT', schema: 'public', table: 'comments' }, function (p) { emit('censa:comment-new', { postId: p.new && p.new.post_id, row: p.new }); });
+      // Réactions (j'adhère, j'adore, haha, wouah, triste, grr) : partagées,
+      // le compteur se met à jour chez tout le monde sans recharger la page.
+      ch.on('postgres_changes', { event: 'INSERT', schema: 'public', table: 'reactions' }, function () { emit('censa:reaction-new', {}); });
+      ch.on('postgres_changes', { event: 'UPDATE', schema: 'public', table: 'reactions' }, function () { emit('censa:reaction-new', {}); });
+      ch.on('postgres_changes', { event: 'DELETE', schema: 'public', table: 'reactions' }, function () { emit('censa:reaction-new', {}); });
+      // Groupes : un membre invité voit le groupe (et sa liste de membres)
+      // apparaître/se mettre à jour instantanément, sans recharger la page.
+      ch.on('postgres_changes', { event: 'INSERT', schema: 'public', table: 'groups' }, function () { emit('censa:groups-new', {}); });
+      ch.on('postgres_changes', { event: 'UPDATE', schema: 'public', table: 'groups' }, function () { emit('censa:groups-new', {}); });
       ch.subscribe();
       RT.feedChan = ch;
     } catch (e) {}

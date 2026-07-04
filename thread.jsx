@@ -59,7 +59,7 @@ function Thread({ t, me, post, comments, onBack }) {
         <div className="mono" style={{ display: 'flex', alignItems: 'center', gap: 18, marginTop: 16, paddingTop: 14,
           borderTop: '1px solid var(--border)', fontSize: 12.5, color: 'var(--text-faint)' }}>
           <span><b style={{ color: 'var(--text)' }}>{fmt(post.watched)}</b> {t.watched_by}</span>
-          <span><b style={{ color: 'var(--text)' }}>{fmt(post.likes)}</b> {t.likes}</span>
+          <span><b style={{ color: 'var(--text)' }}>{fmt(post.reactions != null ? post.reactions : post.likes)}</b> {t.likes}</span>
           <span><b style={{ color: 'var(--text)' }}>{fmt(post.reposts)}</b> {t.reposts}</span>
         </div>
       </div>

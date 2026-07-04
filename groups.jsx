@@ -60,11 +60,14 @@ function CreateGroupModal({ me, onClose, onCreate }) {
 
   const submit = () => {
     if (!valid) return;
+    // Identifiant Supabase réel (pas l'alias local 'me') pour que ce groupe
+    // soit reconnu comme « le mien » par les AUTRES membres qui le chargent.
+    const rid = (window.CENSA_SB && window.CENSA_SB._uid) || me.id;
     onCreate({
       id: 'g_' + Date.now().toString(36), name: name.trim(), desc: desc.trim(),
       activity, privacy, coverKey, hue: me.hue || 196,
-      ownerId: me.id, ownerName: me.name || (getCurLang() === 'en' ? 'Member' : 'Membre'),
-      members: [me.id], posts: [], ts: Date.now(),
+      ownerId: rid, ownerName: me.name || (getCurLang() === 'en' ? 'Member' : 'Membre'),
+      members: [rid], posts: [], ts: Date.now(),
     });
   };
 

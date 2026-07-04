@@ -457,9 +457,16 @@ function App() {
     try {
       const p = await window.CENSA_CLOUD.loadPosts();
       if (Array.isArray(p)) {
-        let counts = {};
+        let counts = {}, rcounts = {}, mine = {};
         try { counts = await window.CENSA_CLOUD.loadCommentCounts(); } catch (e) {}
-        setPosts(p.map(post => counts[post.id] != null ? { ...post, comments: counts[post.id] } : post));
+        try { rcounts = await window.CENSA_CLOUD.loadReactionCounts(); } catch (e) {}
+        try { mine = await window.CENSA_CLOUD.loadMyReactions(); } catch (e) {}
+        setPosts(p.map(post => ({
+          ...post,
+          comments: counts[post.id] != null ? counts[post.id] : post.comments,
+          reactions: rcounts[post.id] || 0,
+          myReaction: mine[post.id] || null,
+        })));
       }
     } catch (e) {}
     try { const s = await window.CENSA_CLOUD.loadStories(); if (Array.isArray(s)) setStories(s); } catch (e) {}
@@ -538,7 +545,8 @@ function App() {
     window.addEventListener('censa:feed-new', soon);
     window.addEventListener('censa:story-new', soon);
     window.addEventListener('censa:comment-new', soon);
-    return () => { clearTimeout(timer); window.removeEventListener('censa:feed-new', soon); window.removeEventListener('censa:story-new', soon); window.removeEventListener('censa:comment-new', soon); };
+    window.addEventListener('censa:reaction-new', soon);
+    return () => { clearTimeout(timer); window.removeEventListener('censa:feed-new', soon); window.removeEventListener('censa:story-new', soon); window.removeEventListener('censa:comment-new', soon); window.removeEventListener('censa:reaction-new', soon); };
   }, [authed]);
 
   // Notifications en direct : se rafraîchit à chaque événement (message reçu,

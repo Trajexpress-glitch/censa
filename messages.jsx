@@ -24,6 +24,34 @@ function readFriendIds() {
 }
 function readGroups() { const v = lsGet('censa_groups', []); return Array.isArray(v) ? v : []; }
 function writeGroups(v) { lsSet('censa_groups', v); notifyMsg(); }
+
+/* Identifiant réel (Supabase) du compte connecté — 'me' n'est qu'un
+   alias local, invalide dès qu'on partage des données entre comptes. */
+function myUid() { return (window.CENSA_SB && window.CENSA_SB._uid) || null; }
+function isMyGroup(g) {
+  if (!g) return false;
+  const rid = myUid();
+  const ms = g.members || [];
+  return g.ownerId === 'me' || (!!rid && g.ownerId === rid) || ms.includes('me') || (!!rid && ms.includes(rid));
+}
+/* Synchronise les groupes (créés par n'importe quel membre) depuis Supabase :
+   sans ça, un groupe créé sur un compte n'apparaissait jamais chez les
+   autres membres invités (tout restait dans le localStorage du créateur). */
+async function syncGroupsFromCloud() {
+  if (!(window.CENSA_CLOUD && window.CENSA_CLOUD.ready())) return;
+  try {
+    const all = await window.CENSA_CLOUD.loadGroups();
+    if (Array.isArray(all)) writeGroups(all.filter(isMyGroup));
+  } catch (e) {}
+}
+function useGroupsSync() {
+  useEffect(() => {
+    syncGroupsFromCloud();
+    const h = () => syncGroupsFromCloud();
+    window.addEventListener('censa:groups-new', h);
+    return () => window.removeEventListener('censa:groups-new', h);
+  }, []);
+}
 function readChats() { return lsGet('censa_chats', {}) || {}; }
 function loadChat(id) { const all = readChats(); return Array.isArray(all[id]) ? all[id] : []; }
 function saveChat(id, msgs) { const all = readChats(); all[id] = msgs; lsSet('censa_chats', all); notifyMsg(); }
@@ -326,6 +354,10 @@ function MiniChat({ me, conv, onClose }) {
    Écran d'appel audio / vidéo (interface complète, simulée)
    ============================================================ */
 function CallOverlay({ conv, kind, me, onEnd }) {
+  useEffect(() => {
+    if (window.CENSA_RINGTONE) window.CENSA_RINGTONE.start();
+    return () => { if (window.CENSA_RINGTONE) window.CENSA_RINGTONE.stop(); };
+  }, []);
   const [secs, setSecs] = useState(0);
   const [connected, setConnected] = useState(false);
   const [muted, setMuted] = useState(false);
@@ -335,6 +367,9 @@ function CallOverlay({ conv, kind, me, onEnd }) {
     const c = setTimeout(() => setConnected(true), 1800);
     return () => clearTimeout(c);
   }, []);
+  useEffect(() => {
+    if (connected && window.CENSA_RINGTONE) window.CENSA_RINGTONE.stop();
+  }, [connected]);
   useEffect(() => {
     if (!connected) return;
     const id = setInterval(() => setSecs(s => s + 1), 1000);
@@ -404,6 +439,13 @@ function CallOverlay({ conv, kind, me, onEnd }) {
 function RealCallOverlay({ me, onEnd }) {
   const [call, setCall] = useState(() => (window.CENSA_RT ? window.CENSA_RT.getCall() : null));
   const [secs, setSecs] = useState(0);
+  // Tonalité de retour d'appel (« ça sonne… ») tant que la ligne n'est pas connectée.
+  useEffect(() => {
+    const ringing = call && call.state !== 'connected';
+    if (ringing && window.CENSA_RINGTONE) window.CENSA_RINGTONE.start();
+    else if (window.CENSA_RINGTONE) window.CENSA_RINGTONE.stop();
+    return () => { if (window.CENSA_RINGTONE) window.CENSA_RINGTONE.stop(); };
+  }, [call && call.state]);
   const [muted, setMuted] = useState(false);
   const [camOff, setCamOff] = useState(() => { const c = window.CENSA_RT && window.CENSA_RT.getCall(); return !!(c && c.kind === 'audio'); });
   const localRef = useRef(null), remoteVidRef = useRef(null), remoteAudRef = useRef(null);
@@ -490,6 +532,10 @@ function RealCallOverlay({ me, onEnd }) {
 /* Sonnerie d'appel entrant (côté destinataire) */
 function IncomingCall({ incoming, onClose }) {
   const u = incoming.fromUser || { id: incoming.from };
+  useEffect(() => {
+    if (window.CENSA_RINGTONE) window.CENSA_RINGTONE.start();
+    return () => { if (window.CENSA_RINGTONE) window.CENSA_RINGTONE.stop(); };
+  }, []);
   const accept = () => { try { window.CENSA_RT.acceptCall(); } catch (e) {} onClose && onClose(); };
   const reject = () => { try { window.CENSA_RT.rejectCall(); } catch (e) {} onClose && onClose(); };
   return (
@@ -526,10 +572,18 @@ function NewGroupModal({ me, onClose }) {
   const [sel, setSel] = useState([]);
   const friends = friendMembers();
   const toggle = (id) => setSel(s => s.includes(id) ? s.filter(x => x !== id) : [...s, id]);
-  const create = () => {
+  const create = async () => {
     if (sel.length < 1) return;
-    const g = { id: 'g_' + Date.now().toString(36), name: (name.trim() || L({ fr: 'Nouveau groupe', en: 'New group' })), members: sel, ts: Date.now() };
-    writeGroups([g, ...readGroups()]);
+    const rid = myUid();
+    const members = rid ? Array.from(new Set([rid, ...sel])) : sel;
+    let g = { id: 'g_' + Date.now().toString(36), name: (name.trim() || L({ fr: 'Nouveau groupe', en: 'New group' })), members, ts: Date.now() };
+    // Partagé via Supabase : les membres invités voient le groupe apparaître
+    // dans LEUR messagerie, pas seulement dans celle du créateur.
+    if (window.CENSA_CLOUD && window.CENSA_CLOUD.ready()) {
+      const saved = await window.CENSA_CLOUD.createGroup({ ...g, ownerId: rid });
+      if (saved) g = saved;
+    }
+    writeGroups([g, ...readGroups().filter(x => x.id !== g.id)]);
     saveChat(g.id, [{ from: 'sys', text: { fr: 'Groupe créé · ' + (sel.length + 1) + ' membres', en: 'Group created · ' + (sel.length + 1) + ' members' }, time: chatNow(), ts: Date.now() }]);
     onClose();
     openChatWindow({ kind: 'group', id: g.id });
@@ -577,8 +631,13 @@ function GroupManageModal({ groupId, onClose }) {
   const groups = readGroups();
   const g = groups.find(x => x.id === groupId);
   if (!g) return null;
-  const update = (members) => {
-    writeGroups(readGroups().map(x => x.id === groupId ? { ...x, members } : x));
+  const update = async (members) => {
+    const updated = { ...g, members };
+    if (window.CENSA_CLOUD && window.CENSA_CLOUD.ready()) {
+      const saved = await window.CENSA_CLOUD.updateGroup(updated);
+      if (saved) { writeGroups(readGroups().map(x => x.id === groupId ? saved : x)); return; }
+    }
+    writeGroups(readGroups().map(x => x.id === groupId ? updated : x));
   };
   const remove = (id) => update(g.members.filter(x => x !== id));
   const add = (id) => update([...g.members, id]);
@@ -676,6 +735,7 @@ function ChatBottomBar({ t, go, onMessage, onStory }) {
    ============================================================ */
 function Messages({ t, me, go }) {
   const ver = useMsgVersion();
+  useGroupsSync();
   const [openRef, setOpenRef] = useState(null);
 
   // masque la nav du bas pendant une conversation (mobile) → place à la barre dédiée
@@ -787,6 +847,7 @@ function Messages({ t, me, go }) {
    ============================================================ */
 function Messenger({ t, me }) {
   const ver = useMsgVersion();
+  useGroupsSync();
   const [windows, setWindows] = useState([]);   // [{kind,id}]
   const [call, setCall] = useState(null);        // {conv,kind} — appel simulé (groupes / repli)
   const [rtCall, setRtCall] = useState(false);   // appel WebRTC réel actif
