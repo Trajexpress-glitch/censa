@@ -111,6 +111,7 @@ const SUPABASE_ANON_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBh
       joined: (profile && profile.joined) || String(new Date().getFullYear()),
       bio: { fr: (profile && profile.bio_fr) || '', en: (profile && profile.bio_en) || '' },
       avatar: (profile && profile.avatar_url) || undefined,
+      cover: (profile && profile.cover_url) || undefined,
     };
   }
 
@@ -204,10 +205,21 @@ const SUPABASE_ANON_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBh
   };
 
   // Met à jour le profil public (appelé quand l'utilisateur édite son compte).
-  API.saveProfile = function (me) {
+  // La photo de profil / couverture n'est d'abord qu'une clé IndexedDB LOCALE
+  // (posée par media.js) : invisible depuis un autre appareil. On la téléverse
+  // vers Supabase Storage (via cloud.jsx) avant de l'enregistrer, pour que la
+  // même photo apparaisse sur mobile ET ordinateur.
+  API.saveProfile = async function (me) {
     if (!ready || !API._uid || !me) return;
     try {
-      sb.from('profiles').upsert({
+      let avatarUrl = me.avatar || null;
+      let coverUrl = me.cover || null;
+      const upload = window.CENSA_CLOUD && window.CENSA_CLOUD.uploadMedia;
+      if (upload) {
+        if (avatarUrl && !/^https?:\/\//.test(avatarUrl)) avatarUrl = await upload(avatarUrl);
+        if (coverUrl && !/^https?:\/\//.test(coverUrl)) coverUrl = await upload(coverUrl);
+      }
+      await sb.from('profiles').upsert({
         id: API._uid,
         name: me.name || '',
         handle: me.handle || null,
@@ -218,8 +230,20 @@ const SUPABASE_ANON_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBh
         joined: me.joined || null,
         bio_fr: (me.bio && me.bio.fr) || '',
         bio_en: (me.bio && me.bio.en) || '',
-        avatar_url: me.avatar || null,
+        avatar_url: avatarUrl,
+        cover_url: coverUrl,
       });
+      // remplace la clé locale par l'URL distante désormais partagée, pour que
+      // ce même appareil (et tous les autres) s'appuient sur elle ensuite.
+      if ((avatarUrl && avatarUrl !== me.avatar) || (coverUrl && coverUrl !== me.cover)) {
+        try {
+          const acc = JSON.parse(localStorage.getItem('censa_account')) || {};
+          if (avatarUrl) acc.avatar = avatarUrl;
+          if (coverUrl) acc.cover = coverUrl;
+          localStorage.setItem('censa_account', JSON.stringify(acc));
+          if (window.setCensaMe) window.setCensaMe(acc);
+        } catch (e) {}
+      }
     } catch (e) {}
     schedulePush();
   };
