@@ -23,13 +23,13 @@ const STRIPE_CONFIG = {
   // ── OPTION B (sans serveur) : liens de paiement Stripe ───────────────
   // Un lien par durée. Utilisés seulement si backendUrl est vide.
   paymentLinks: {
-    boost24: 'https://buy.stripe.com/VOTRE_LIEN_5USD_24H',
-    boost48: 'https://buy.stripe.com/VOTRE_LIEN_10USD_48H',
-    boost80: 'https://buy.stripe.com/VOTRE_LIEN_15USD_80H',
+    boost24: 'https://buy.stripe.com/test_aFacN674KgeQ7fzb6d3ZK00',
+    boost48: 'https://buy.stripe.com/test_7sYbJ2agW1jWeI1a293ZK01',
+    boost80: 'https://buy.stripe.com/test_3cI6oIagW7Ik8jD5LT3ZK02',
   },
 
   // Clé PUBLIQUE (jamais la secrète). Sert au badge « sécurisé par Stripe ».
-  publishableKey: 'pk_live_VOTRE_CLE_PUBLIQUE',
+  publishableKey: 'pk_test_51TsSI3LS5N0x0qsYy1fjJlhkCnO48WHW1kG11iL2oc61FnY3ChEjQ9s5MVQKnp2PPlieHZK6c4Drn8Ka18Y4M5bx00a0Yt1RUl',
 };
 
 /* Les 3 durées de mise en avant (paiement unique). */

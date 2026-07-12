@@ -97,7 +97,11 @@ function startCall(conv, kind) {
       window.CENSA_RT && window.CENSA_RT.ready && window.CENSA_RT.ready()) {
     try { window.CENSA_RT.placeCall(conv.user.id, kind, conv.user); return; } catch (e) {}
   }
-  // Repli (groupes / hors-ligne) : ancien écran d'appel simulé.
+  // Appel de GROUPE réel (maillage WebRTC, tous les membres sonnent).
+  if (conv && conv.kind === 'group' && window.CENSA_RT && window.CENSA_RT.ready && window.CENSA_RT.ready()) {
+    try { window.CENSA_RT.startGroupCall(conv.id, kind, conv.members || []); return; } catch (e) {}
+  }
+  // Repli (hors-ligne) : ancien écran d'appel simulé.
   try { window.dispatchEvent(new CustomEvent('censa:call', { detail: { conv, kind } })); } catch (e) {}
 }
 function requestNewGroup() { try { window.dispatchEvent(new Event('censa:newgroup')); } catch (e) {} }
@@ -306,6 +310,7 @@ function ChatBody({ me, conv, compact }) {
       </div>
       <div className={compact ? 'msg-mini-input' : 'chat-full-input'}>
         <EmojiButton onPick={(e) => setText(tx => tx + e)} align="left" style={{ flex: '0 0 auto' }} />
+        <AiComposeButton context={convTitle(conv)} onInsert={(v) => setText(v)} size={compact ? 34 : 38} />
         <input className="input" value={text} onChange={(e) => setText(e.target.value)} onKeyDown={(e) => e.key === 'Enter' && send()}
           placeholder={L({ fr: 'Message…', en: 'Message…' })} style={{ borderRadius: 999, padding: compact ? '9px 13px' : '11px 15px', fontSize: fz }} />
         {text.trim()
@@ -555,6 +560,143 @@ function IncomingCall({ incoming, onClose }) {
             <Icon name="phone" size={24} style={{ transform: 'rotate(135deg)' }} />
           </button>
           <button onClick={accept} title={L({ fr: 'Répondre', en: 'Answer' })}
+            style={{ width: 60, height: 60, borderRadius: '50%', border: 'none', cursor: 'pointer', background: 'var(--good, oklch(0.7 0.16 150))', color: '#fff', display: 'grid', placeItems: 'center' }}>
+            <Icon name={incoming.kind === 'video' ? 'video' : 'phone'} size={24} />
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+/* ============================================================
+   Appel de GROUPE réel — maillage WebRTC (chaque participant relié
+   directement aux autres) : grille de vignettes + contrôles.
+   ============================================================ */
+function GroupCallOverlay({ me, onEnd }) {
+  const [g, setG] = useState(() => (window.CENSA_RT ? window.CENSA_RT.getGroupCall() : null));
+  const [secs, setSecs] = useState(0);
+  const [muted, setMuted] = useState(false);
+  const [camOff, setCamOff] = useState(() => { const c = window.CENSA_RT && window.CENSA_RT.getGroupCall(); return !!(c && c.kind === 'audio'); });
+  const localRef = useRef(null);
+
+  useEffect(() => {
+    const upd = () => setG(window.CENSA_RT ? window.CENSA_RT.getGroupCall() : null);
+    window.addEventListener('censa:groupcall-update', upd);
+    return () => window.removeEventListener('censa:groupcall-update', upd);
+  }, []);
+
+  const peerCount = g ? Object.keys(g.peers || {}).length : 0;
+  const connectedCount = g ? Object.values(g.peers || {}).filter(p => p.stream).length : 0;
+  useEffect(() => {
+    if (!window.CENSA_RINGTONE) return;
+    if (connectedCount === 0) window.CENSA_RINGTONE.start();
+    else window.CENSA_RINGTONE.stop();
+    return () => window.CENSA_RINGTONE.stop();
+  }, [connectedCount === 0]);
+
+  useEffect(() => { if (localRef.current && g && g.localStream) localRef.current.srcObject = g.localStream; }, [g && g.localStream]);
+  useEffect(() => {
+    if (connectedCount === 0) return;
+    const id = setInterval(() => setSecs(s => s + 1), 1000);
+    return () => clearInterval(id);
+  }, [connectedCount === 0]);
+
+  if (!g) return null;
+  const isVideo = g.kind === 'video';
+  const mm = String(Math.floor(secs / 60)).padStart(2, '0');
+  const ss = String(secs % 60).padStart(2, '0');
+  const status = connectedCount > 0 ? (mm + ':' + ss) : L({ fr: 'En attente des autres membres…', en: 'Waiting for other members…' });
+  const leave = () => { try { window.CENSA_RT.leaveGroupCall(); } catch (e) {} onEnd && onEnd(); };
+  const toggleMute = () => { const v = !muted; setMuted(v); try { window.CENSA_RT.setGroupMuted(v); } catch (e) {} };
+  const toggleCam = () => { const v = !camOff; setCamOff(v); try { window.CENSA_RT.setGroupCamOff(v); } catch (e) {} };
+  const peers = Object.values(g.peers || {});
+
+  return (
+    <div className="call-overlay">
+      <div className={'call-stage' + (isVideo ? ' video' : '')}>
+        <div className="call-bg">
+          {peers.length === 0 ? (
+            <div style={{ display: 'grid', placeItems: 'center', height: '100%' }}><Avatar user={{}} size={116} /></div>
+          ) : (
+            <div className="call-grid">
+              {peers.map(p => (
+                <div key={p.id} className="call-tile">
+                  {isVideo && p.stream
+                    ? <video autoPlay playsInline ref={(el) => { if (el && el.srcObject !== p.stream) el.srcObject = p.stream; }} style={{ width: '100%', height: '100%', objectFit: 'cover', borderRadius: 12 }} />
+                    : <Avatar user={memberById(p.id) || {}} size={84} />}
+                </div>
+              ))}
+            </div>
+          )}
+        </div>
+
+        <div className="call-info">
+          <span className="mono" style={{ fontSize: 12, color: 'rgba(255,255,255,.66)', letterSpacing: '.1em' }}>
+            <span className="hive-rec dot" style={{ display: 'inline-block', marginRight: 6 }} />
+            {isVideo ? L({ fr: 'APPEL VIDÉO DE GROUPE · CENSA', en: 'GROUP VIDEO CALL · CENSA' }) : L({ fr: 'APPEL AUDIO DE GROUPE · CENSA', en: 'GROUP AUDIO CALL · CENSA' })}
+          </span>
+          <h2 style={{ fontSize: 26, fontWeight: 700, color: '#fff', marginTop: 8, fontFamily: 'var(--font-brand)' }}>
+            {peerCount + 1} {L({ fr: 'participant(s)', en: 'participant(s)' })}
+          </h2>
+          <p className="mono" style={{ fontSize: 14, color: connectedCount > 0 ? 'var(--accent)' : 'rgba(255,255,255,.7)', marginTop: 4 }}>{status}</p>
+        </div>
+
+        {isVideo && !camOff && (
+          <div className="call-self" style={{ overflow: 'hidden' }}>
+            <video ref={localRef} autoPlay playsInline muted style={{ width: '100%', height: '100%', objectFit: 'cover', borderRadius: 14 }} />
+          </div>
+        )}
+
+        <div className="call-controls">
+          <button className={'call-ctl' + (muted ? ' on' : '')} onClick={toggleMute} title={L({ fr: 'Micro', en: 'Mic' })}>
+            <Icon name={muted ? 'micoff' : 'mic'} size={22} />
+          </button>
+          {isVideo && (
+            <button className={'call-ctl' + (camOff ? ' on' : '')} onClick={toggleCam} title={L({ fr: 'Caméra', en: 'Camera' })}>
+              <Icon name="video" size={22} />
+            </button>
+          )}
+          <button className="call-ctl end" onClick={leave} title={L({ fr: 'Quitter l’appel', en: 'Leave call' })}>
+            <Icon name="phone" size={24} style={{ transform: 'rotate(135deg)' }} />
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+/* Invitation à un appel de groupe (un autre membre a démarré l'appel) */
+function IncomingGroupCall({ incoming, onClose }) {
+  const u = incoming.fromUser || { id: incoming.from };
+  const g = readGroups().find(x => x.id === incoming.groupId);
+  useEffect(() => {
+    if (window.CENSA_RINGTONE) window.CENSA_RINGTONE.start();
+    return () => { if (window.CENSA_RINGTONE) window.CENSA_RINGTONE.stop(); };
+  }, []);
+  const accept = () => {
+    try { window.CENSA_RT.startGroupCall(incoming.groupId, incoming.kind, (g && g.members) || []); } catch (e) {}
+    onClose && onClose();
+  };
+  return (
+    <div className="call-overlay" style={{ zIndex: 600 }}>
+      <div className="card animate-in" style={{ width: 'min(360px, 92%)', padding: '30px 26px', textAlign: 'center', borderRadius: 22 }}>
+        <span style={{ display: 'inline-flex', position: 'relative' }}>
+          <GroupAvatar members={(g && g.members) || [u.id]} size={96} />
+          <span className="call-ring-pulse" />
+        </span>
+        <h2 style={{ fontSize: 22, fontWeight: 700, marginTop: 16, fontFamily: 'var(--font-brand)' }}>{(g && g.name) || L({ fr: 'Groupe', en: 'Group' })}</h2>
+        <p className="mono" style={{ fontSize: 13, color: 'var(--accent)', marginTop: 6 }}>
+          {u.name || ('@' + (u.handle || ''))} {incoming.kind === 'video'
+            ? L({ fr: 'démarre un appel vidéo de groupe…', en: 'started a group video call…' })
+            : L({ fr: 'démarre un appel audio de groupe…', en: 'started a group audio call…' })}
+        </p>
+        <div style={{ display: 'flex', gap: 14, justifyContent: 'center', marginTop: 26 }}>
+          <button onClick={onClose} title={L({ fr: 'Ignorer', en: 'Dismiss' })}
+            style={{ width: 60, height: 60, borderRadius: '50%', border: 'none', cursor: 'pointer', background: 'var(--alarm, oklch(0.62 0.2 25))', color: '#fff', display: 'grid', placeItems: 'center' }}>
+            <Icon name="phone" size={24} style={{ transform: 'rotate(135deg)' }} />
+          </button>
+          <button onClick={accept} title={L({ fr: 'Rejoindre', en: 'Join' })}
             style={{ width: 60, height: 60, borderRadius: '50%', border: 'none', cursor: 'pointer', background: 'var(--good, oklch(0.7 0.16 150))', color: '#fff', display: 'grid', placeItems: 'center' }}>
             <Icon name={incoming.kind === 'video' ? 'video' : 'phone'} size={24} />
           </button>
@@ -851,6 +993,8 @@ function Messenger({ t, me }) {
   const [windows, setWindows] = useState([]);   // [{kind,id}]
   const [call, setCall] = useState(null);        // {conv,kind} — appel simulé (groupes / repli)
   const [rtCall, setRtCall] = useState(false);   // appel WebRTC réel actif
+  const [groupCall, setGroupCall] = useState(false); // appel de groupe réel actif
+  const [groupIncoming, setGroupIncoming] = useState(null); // invitation à un appel de groupe
   const [incoming, setIncoming] = useState(null);// sonnerie entrante
   const [callErr, setCallErr] = useState(null);  // message d'erreur d'appel
   const [newGroup, setNewGroup] = useState(false);
@@ -870,10 +1014,14 @@ function Messenger({ t, me }) {
     // appels réels (WebRTC)
     const onRtUpdate = () => { const c = window.CENSA_RT && window.CENSA_RT.getCall(); setRtCall(!!c); };
     const onRtEnded = () => setRtCall(false);
+    const onGroupCallUpdate = (e) => setGroupCall(!!(e.detail));
+    const onGroupCallEnded = () => setGroupCall(false);
+    const onGroupInvite = (e) => setGroupIncoming(e.detail);
     const onIncoming = (e) => setIncoming(e.detail);
     const onIncomingCancel = () => setIncoming(null);
     const onCallErr = (e) => {
       setRtCall(false);
+      setGroupCall(false);
       const reasons = {
         permission: { fr: 'Micro/caméra refusés. Autorisez l\u2019accès pour appeler.', en: 'Mic/camera blocked. Allow access to call.' },
         nomedia: { fr: 'Appareil sans micro/caméra disponible.', en: 'No mic/camera available.' },
@@ -889,6 +1037,9 @@ function Messenger({ t, me }) {
     window.addEventListener('censa:managegroup', onManage);
     window.addEventListener('censa:call-update', onRtUpdate);
     window.addEventListener('censa:call-ended', onRtEnded);
+    window.addEventListener('censa:groupcall-update', onGroupCallUpdate);
+    window.addEventListener('censa:groupcall-ended', onGroupCallEnded);
+    window.addEventListener('censa:incoming-groupcall', onGroupInvite);
     window.addEventListener('censa:incoming-call', onIncoming);
     window.addEventListener('censa:incoming-cancelled', onIncomingCancel);
     window.addEventListener('censa:call-error', onCallErr);
@@ -899,6 +1050,9 @@ function Messenger({ t, me }) {
       window.removeEventListener('censa:managegroup', onManage);
       window.removeEventListener('censa:call-update', onRtUpdate);
       window.removeEventListener('censa:call-ended', onRtEnded);
+      window.removeEventListener('censa:groupcall-update', onGroupCallUpdate);
+      window.removeEventListener('censa:groupcall-ended', onGroupCallEnded);
+      window.removeEventListener('censa:incoming-groupcall', onGroupInvite);
       window.removeEventListener('censa:incoming-call', onIncoming);
       window.removeEventListener('censa:incoming-cancelled', onIncomingCancel);
       window.removeEventListener('censa:call-error', onCallErr);
@@ -944,7 +1098,9 @@ function Messenger({ t, me }) {
       {manageId && <GroupManageModal groupId={manageId} onClose={() => setManageId(null)} />}
       {call && <CallOverlay conv={call.conv} kind={call.kind} me={me} onEnd={() => setCall(null)} />}
       {rtCall && <RealCallOverlay me={me} onEnd={() => setRtCall(false)} />}
+      {groupCall && <GroupCallOverlay me={me} onEnd={() => setGroupCall(false)} />}
       {incoming && <IncomingCall incoming={incoming} onClose={() => setIncoming(null)} />}
+      {groupIncoming && <IncomingGroupCall incoming={groupIncoming} onClose={() => setGroupIncoming(null)} />}
       {callErr && (
         <div className="card animate-in" style={{ position: 'fixed', bottom: 24, left: '50%', transform: 'translateX(-50%)', zIndex: 650,
           padding: '12px 18px', borderRadius: 12, display: 'flex', alignItems: 'center', gap: 10, fontSize: 13.5, color: 'var(--text)' }}>
@@ -955,4 +1111,4 @@ function Messenger({ t, me }) {
   );
 }
 
-Object.assign(window, { Notifications, Messages, Messenger, MiniChat, CallOverlay, RealCallOverlay, IncomingCall, NewGroupModal, GroupManageModal, openChatWindow, startCall, isOnline });
+Object.assign(window, { Notifications, Messages, Messenger, MiniChat, CallOverlay, RealCallOverlay, IncomingCall, GroupCallOverlay, IncomingGroupCall, NewGroupModal, GroupManageModal, openChatWindow, startCall, isOnline });

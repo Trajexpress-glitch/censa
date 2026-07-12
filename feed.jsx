@@ -8,6 +8,7 @@ function Composer({ t, me, onPost }) {
   const [media, setMedia] = useState(null); // { key, url }
   const [busy, setBusy] = useState(false);
   const [vis, setVis] = useState('friends'); // 'friends' | 'public'
+  const [aiPhoto, setAiPhoto] = useState(false);
   const ref = useRef(null);
   const canPost = (text.trim() || media) && !busy;
   const reset = () => { setText(''); setMedia(null); if (ref.current) ref.current.style.height = 'auto'; };
@@ -40,6 +41,7 @@ function Composer({ t, me, onPost }) {
             paddingTop: 12, borderTop: '1px solid var(--border)' }}>
             <div style={{ display: 'flex', gap: 2, alignItems: 'center' }}>
               <button className="iconbtn" onClick={addPhoto} title={t.add_photo} style={{ color: 'var(--accent)', width: 34, height: 34 }}><Icon name="image" size={19} /></button>
+              <button className="iconbtn" onClick={() => setAiPhoto(true)} title={L({ fr: 'Créer une photo avec l’IA', en: 'Create a photo with AI' })} style={{ color: 'var(--accent)', width: 34, height: 34 }}><Icon name="spark" size={19} /></button>
               <button className="iconbtn" style={{ color: 'var(--accent)', width: 34, height: 34 }}><Icon name="loc" size={19} /></button>
               <EmojiButton onPick={(e) => { setText(tx => tx + e); }} title={L({ fr: 'Ajouter un émoji', en: 'Add an emoji' })} />
             </div>
@@ -58,6 +60,7 @@ function Composer({ t, me, onPost }) {
           </div>
         </div>
       </div>
+      {aiPhoto && <AiPhotoModal onClose={() => setAiPhoto(false)} onCreate={({ key, url }) => { setMedia({ key, url }); setAiPhoto(false); }} />}
     </div>
   );
 }

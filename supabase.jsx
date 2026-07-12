@@ -215,9 +215,27 @@ const SUPABASE_ANON_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBh
       let avatarUrl = me.avatar || null;
       let coverUrl = me.cover || null;
       const upload = window.CENSA_CLOUD && window.CENSA_CLOUD.uploadMedia;
+      let avatarFailed = false, coverFailed = false;
       if (upload) {
-        if (avatarUrl && !/^https?:\/\//.test(avatarUrl)) avatarUrl = await upload(avatarUrl);
-        if (coverUrl && !/^https?:\/\//.test(coverUrl)) coverUrl = await upload(coverUrl);
+        if (avatarUrl && !/^https?:\/\//.test(avatarUrl)) {
+          const up = await upload(avatarUrl);
+          if (/^https?:\/\//.test(up)) avatarUrl = up; else avatarFailed = true;
+        }
+        if (coverUrl && !/^https?:\/\//.test(coverUrl)) {
+          const up = await upload(coverUrl);
+          if (/^https?:\/\//.test(up)) coverUrl = up; else coverFailed = true;
+        }
+      }
+      // Si le téléversement échoue (bucket Storage manquant / policy refusée),
+      // on n'écrase JAMAIS la colonne avec une clé locale — invisible pour les
+      // autres membres. On garde la valeur distante déjà connue et on prévient l'app.
+      if (avatarFailed || coverFailed) {
+        try {
+          const cur = await sb.from('profiles').select('avatar_url,cover_url').eq('id', API._uid).maybeSingle();
+          if (avatarFailed) avatarUrl = (cur.data && cur.data.avatar_url) || null;
+          if (coverFailed) coverUrl = (cur.data && cur.data.cover_url) || null;
+        } catch (e) {}
+        try { window.dispatchEvent(new CustomEvent('censa:media-sync-failed', { detail: { avatar: avatarFailed, cover: coverFailed } })); } catch (e) {}
       }
       await sb.from('profiles').upsert({
         id: API._uid,

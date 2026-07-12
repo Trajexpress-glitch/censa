@@ -73,7 +73,10 @@ function Thread({ t, me, post, comments, onBack }) {
               fontSize: 16, lineHeight: 1.5, paddingTop: 8 }} />
           <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
             <span className="mono" style={{ fontSize: 11, color: 'var(--text-faint)' }}>{t.encrypted}</span>
-            <button className="btn btn-primary" onClick={send} disabled={!reply.trim()} style={{ opacity: reply.trim() ? 1 : 0.5, padding: '8px 18px' }}>{t.reply}</button>
+            <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+              <AiComposeButton context={L(post.text)} onInsert={setReply} />
+              <button className="btn btn-primary" onClick={send} disabled={!reply.trim()} style={{ opacity: reply.trim() ? 1 : 0.5, padding: '8px 18px' }}>{t.reply}</button>
+            </div>
           </div>
         </div>
       </div>

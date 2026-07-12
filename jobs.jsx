@@ -334,9 +334,12 @@ function JobApplyForm({ job, me, onCancel, onSent }) {
           </div>
 
           <div className="field">
-            <label>{L({ fr: 'Message à l\u2019annonceur (option)', en: 'Message to the advertiser (optional)' })}</label>
+            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+              <label style={{ marginBottom: 0 }}>{L({ fr: 'Message à l\u2019annonceur (option)', en: 'Message to the advertiser (optional)' })}</label>
+              <AiComposeButton context={L(job.title) + ' · ' + job.company} onInsert={(v) => setMessage(v)} label={L({ fr: 'Rédiger avec l’IA', en: 'Draft with AI' })} align="right" />
+            </div>
             <textarea className="input" value={message} onChange={(e) => setMessage(e.target.value)} rows={4}
-              placeholder={L({ fr: 'Présentez-vous en quelques lignes…', en: 'Introduce yourself in a few lines…' })} style={{ resize: 'vertical', minHeight: 92, lineHeight: 1.5 }} />
+              placeholder={L({ fr: 'Présentez-vous en quelques lignes…', en: 'Introduce yourself in a few lines…' })} style={{ resize: 'vertical', minHeight: 92, lineHeight: 1.5, marginTop: 8 }} />
           </div>
 
           {err && <div className="mono" style={{ fontSize: 12.5, color: 'var(--alarm)' }}>{err}</div>}

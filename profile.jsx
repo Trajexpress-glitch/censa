@@ -24,7 +24,13 @@ function Profile({ t, user, isMe, posts, videos, onOpen, onMessage, onSignOut, o
   const myPosts = posts.filter(p => p.author === u.id);
   const [tab, setTab] = useState('posts');
   const [busy, setBusy] = useState(false);
+  const [syncErr, setSyncErr] = useState(false);
   const { ids: followingIds } = useFollow();
+  useEffect(() => {
+    const h = () => { setSyncErr(true); setTimeout(() => setSyncErr(false), 8000); };
+    window.addEventListener('censa:media-sync-failed', h);
+    return () => window.removeEventListener('censa:media-sync-failed', h);
+  }, []);
 
   // photos + vidéos du membre, regroupées
   const photoPosts = myPosts.filter(p => p.media && p.media.type === 'image');
@@ -87,6 +93,15 @@ function Profile({ t, user, isMe, posts, videos, onOpen, onMessage, onSignOut, o
               : <FollowButton user={u} t={t} size="lg" />}
           </div>
         </div>
+
+        {isMe && syncErr && (
+          <div className="card animate-in" style={{ marginTop: 14, padding: '12px 14px', display: 'flex', gap: 10, alignItems: 'flex-start', borderColor: 'var(--alarm)' }}>
+            <Icon name="shield" size={18} style={{ color: 'var(--alarm)', flex: '0 0 auto', marginTop: 1 }} />
+            <p style={{ fontSize: 13, color: 'var(--text-dim)', lineHeight: 1.5, textWrap: 'pretty' }}>
+              {L({ fr: 'Votre photo n\u2019a pas pu être partagée aux autres membres (stockage Supabase non configuré). Exécutez supabase_patch2.sql dans votre projet Supabase, puis reprenez la photo.', en: 'Your photo could not be shared with other members (Supabase Storage not set up). Run supabase_patch2.sql in your Supabase project, then re-upload the photo.' })}
+            </p>
+          </div>
+        )}
 
         <div style={{ marginTop: 12 }}>
           <div style={{ display: 'flex', alignItems: 'center', gap: 7 }}>

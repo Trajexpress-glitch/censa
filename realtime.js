@@ -89,6 +89,7 @@
       p.on('broadcast', { event: 'call-cancel' }, function (m) { onRemoteCancel(m.payload); });
       p.on('broadcast', { event: 'dm' }, function (m) { onIncomingDM(m.payload); });
       p.on('broadcast', { event: 'notif' }, function (m) { onIncomingNotif(m.payload); });
+      p.on('broadcast', { event: 'group-call-invite' }, function (m) { onGroupCallInvite(m.payload); });
       p.subscribe();
       RT.personal = p;
     } catch (e) {}
@@ -513,6 +514,149 @@
     if (RT.call && RT.call.localStream) RT.call.localStream.getVideoTracks().forEach(function (t) { t.enabled = !off; });
   }
 
+  /* ============================================================
+     APPELS DE GROUPE — maillage WebRTC (chaque participant se
+     connecte directement à chaque autre). Un seul « salon » par
+     groupe (canal censa-group-<id>) : démarrer OU rejoindre un
+     appel de groupe utilisent la même fonction startGroupCall.
+     ============================================================ */
+  function groupChannelName(gid) { return 'censa-group-' + gid; }
+
+  function newGroupPC(peerId) {
+    var pc = new RTCPeerConnection(ICE);
+    pc.onicecandidate = function (e) {
+      var g = RT.group;
+      if (e.candidate && g && g.channel) {
+        try { g.channel.send({ type: 'broadcast', event: 'gice', payload: { from: RT.uid, to: peerId, candidate: e.candidate } }); } catch (er) {}
+      }
+    };
+    pc.ontrack = function (e) {
+      var g = RT.group; if (!g || !g.peers[peerId]) return;
+      g.peers[peerId].stream = e.streams[0];
+      emit('censa:groupcall-update', groupSnapshot());
+    };
+    pc.onconnectionstatechange = function () {
+      var st = pc.connectionState;
+      if (st === 'failed' || st === 'disconnected' || st === 'closed') removeGroupPeer(peerId);
+    };
+    return pc;
+  }
+
+  function ensureGroupPeer(peerId) {
+    var g = RT.group; if (!g) return null;
+    if (!g.peers[peerId]) g.peers[peerId] = { pc: null, stream: null };
+    if (!g.peers[peerId].pc) {
+      var pc = newGroupPC(peerId);
+      g.peers[peerId].pc = pc;
+      if (g.localStream) g.localStream.getTracks().forEach(function (tr) { pc.addTrack(tr, g.localStream); });
+    }
+    return g.peers[peerId].pc;
+  }
+
+  function removeGroupPeer(peerId) {
+    var g = RT.group; if (!g) return;
+    var p = g.peers[peerId];
+    if (p && p.pc) { try { p.pc.close(); } catch (e) {} }
+    delete g.peers[peerId];
+    emit('censa:groupcall-update', groupSnapshot());
+  }
+
+  async function makeGroupOfferTo(peerId) {
+    var g = RT.group; if (!g) return;
+    var pc = ensureGroupPeer(peerId);
+    try {
+      var offer = await pc.createOffer();
+      await pc.setLocalDescription(offer);
+      g.channel.send({ type: 'broadcast', event: 'goffer', payload: { from: RT.uid, to: peerId, sdp: offer } });
+    } catch (e) {}
+  }
+
+  async function onGroupOffer(p) {
+    var g = RT.group; if (!g) return;
+    var pc = ensureGroupPeer(p.from);
+    try {
+      await pc.setRemoteDescription(new RTCSessionDescription(p.sdp));
+      var answer = await pc.createAnswer();
+      await pc.setLocalDescription(answer);
+      g.channel.send({ type: 'broadcast', event: 'ganswer', payload: { from: RT.uid, to: p.from, sdp: answer } });
+    } catch (e) {}
+  }
+  async function onGroupAnswer(p) {
+    var g = RT.group; var peer = g && g.peers[p.from]; if (!peer || !peer.pc) return;
+    try { await peer.pc.setRemoteDescription(new RTCSessionDescription(p.sdp)); } catch (e) {}
+  }
+  async function onGroupIce(p) {
+    var g = RT.group; var peer = g && g.peers[p.from]; if (!peer || !peer.pc) return;
+    try { await peer.pc.addIceCandidate(new RTCIceCandidate(p.candidate)); } catch (e) {}
+  }
+
+  function joinGroupChannel(groupId) {
+    var sb = SB(); if (!sb) return null;
+    var ch = sb.channel(groupChannelName(groupId));
+    ch.on('broadcast', { event: 'gjoin' }, function (m) {
+      var p = m.payload; if (!p || p.from === RT.uid) return;
+      ensureGroupPeer(p.from);
+      emit('censa:groupcall-update', groupSnapshot());
+      makeGroupOfferTo(p.from); // j'accueille le nouvel arrivant : je lui envoie une offre
+    });
+    ch.on('broadcast', { event: 'goffer' }, function (m) { var p = m.payload; if (p && p.to === RT.uid) onGroupOffer(p); });
+    ch.on('broadcast', { event: 'ganswer' }, function (m) { var p = m.payload; if (p && p.to === RT.uid) onGroupAnswer(p); });
+    ch.on('broadcast', { event: 'gice' }, function (m) { var p = m.payload; if (p && p.to === RT.uid) onGroupIce(p); });
+    ch.on('broadcast', { event: 'gleave' }, function (m) { var p = m.payload; if (p) removeGroupPeer(p.from); });
+    ch.subscribe(function (status) {
+      if (status === 'SUBSCRIBED') { try { ch.send({ type: 'broadcast', event: 'gjoin', payload: { from: RT.uid } }); } catch (e) {} }
+    });
+    return ch;
+  }
+
+  function groupSnapshot() {
+    var g = RT.group; if (!g) return null;
+    var peers = {};
+    Object.keys(g.peers).forEach(function (id) { peers[id] = { id: id, stream: g.peers[id].stream || null }; });
+    return { groupId: g.groupId, kind: g.kind, localStream: g.localStream, peers: peers, members: g.members || [] };
+  }
+  function getGroupCall() { return groupSnapshot(); }
+
+  // Démarre OU rejoint le salon d'appel du groupe (même fonction des deux côtés).
+  async function startGroupCall(groupId, kind, members) {
+    var sb = SB();
+    if (!sb || !RT.uid) { emit('censa:call-error', { reason: 'offline' }); return; }
+    if (RT.group) return; // déjà en appel de groupe
+    if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) { emit('censa:call-error', { reason: 'nomedia' }); return; }
+    var g = { groupId: groupId, kind: kind, channel: null, localStream: null, peers: {}, members: members || [] };
+    RT.group = g;
+    emit('censa:groupcall-update', groupSnapshot());
+    try { g.localStream = await getMedia(kind); }
+    catch (e) { emit('censa:call-error', { reason: 'permission' }); RT.group = null; emit('censa:groupcall-update', null); return; }
+    g.channel = joinGroupChannel(groupId);
+    emit('censa:groupcall-update', groupSnapshot());
+    // sonne chez chaque membre (hors moi) via son canal personnel
+    (members || []).forEach(function (mid) {
+      if (!mid || mid === RT.uid) return;
+      sendToPeer(mid, 'group-call-invite', { from: RT.uid, groupId: groupId, kind: kind, fromUser: myUserBrief() });
+    });
+  }
+
+  function leaveGroupCall() {
+    var g = RT.group; if (!g) return;
+    try { if (g.channel) g.channel.send({ type: 'broadcast', event: 'gleave', payload: { from: RT.uid } }); } catch (e) {}
+    Object.keys(g.peers).forEach(function (id) { try { g.peers[id].pc && g.peers[id].pc.close(); } catch (e) {} });
+    try { if (g.localStream) g.localStream.getTracks().forEach(function (t) { t.stop(); }); } catch (e) {}
+    try { if (g.channel && SB()) SB().removeChannel(g.channel); } catch (e) {}
+    RT.group = null;
+    emit('censa:groupcall-ended', {});
+  }
+
+  function setGroupMuted(m) { var g = RT.group; if (g && g.localStream) g.localStream.getAudioTracks().forEach(function (t) { t.enabled = !m; }); }
+  function setGroupCamOff(off) { var g = RT.group; if (g && g.localStream) g.localStream.getVideoTracks().forEach(function (t) { t.enabled = !off; }); }
+
+  // Invitation reçue (un autre membre a démarré un appel dans un groupe commun).
+  function onGroupCallInvite(payload) {
+    if (!payload || !payload.groupId) return;
+    if (RT.group && RT.group.groupId === payload.groupId) return; // déjà dedans
+    emit('censa:incoming-groupcall', payload);
+  }
+
   window.CENSA_RT = {
     start: start, stop: stop,
     isOnline: isOnline, onlineIds: onlineIds,
@@ -521,6 +665,8 @@
     placeCall: placeCall, acceptCall: acceptCall, rejectCall: rejectCall, hangUp: hangUp,
     getCall: getCall, getIncoming: getIncoming,
     setMuted: setMuted, setCamOff: setCamOff,
+    startGroupCall: startGroupCall, leaveGroupCall: leaveGroupCall, getGroupCall: getGroupCall,
+    setGroupMuted: setGroupMuted, setGroupCamOff: setGroupCamOff,
     newMid: newMid, sendMessage: sendMessage, loadHistory: loadHistory,
     ready: function () { return !!SB(); },
   };

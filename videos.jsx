@@ -9,17 +9,32 @@
    ============================================================ */
 
 function ShortVideo({ video }) {
-  const url = useMediaUrl(video.media.key);
+  const isYT = video.media && video.media.type === 'youtube';
+  const url = useMediaUrl(isYT ? null : video.media.key);
   const ref = useRef(null);
   const [playing, setPlaying] = useState(false);
   const toggle = () => { const v = ref.current; if (!v) return; if (v.paused) { v.play(); } else { v.pause(); } };
   return (
     <div className="short-card">
-      {url
-        ? <video ref={ref} src={url} loop playsInline onClick={toggle}
-            onPlay={() => setPlaying(true)} onPause={() => setPlaying(false)} className="short-video" />
-        : <div className="short-video" style={{ display: 'grid', placeItems: 'center', color: '#777' }}>…</div>}
-      {!playing && url && (
+      {isYT ? (
+        <iframe className="short-video" style={{ border: 'none', background: '#000' }}
+          src={'https://www.youtube-nocookie.com/embed/' + video.media.videoId + '?rel=0&modestbranding=1'}
+          title={video.caption || 'YouTube'} referrerPolicy="no-referrer"
+          sandbox="allow-scripts allow-same-origin allow-presentation allow-popups"
+          allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture" allowFullScreen />
+      ) : url ? (
+        <video ref={ref} src={url} loop playsInline onClick={toggle}
+          onPlay={() => setPlaying(true)} onPause={() => setPlaying(false)} className="short-video" />
+      ) : (
+        <div className="short-video" style={{ display: 'grid', placeItems: 'center', color: '#777' }}>…</div>
+      )}
+      {isYT && (
+        <span className="mono" style={{ position: 'absolute', top: 12, left: 12, display: 'inline-flex', alignItems: 'center', gap: 6,
+          fontSize: 10.5, fontWeight: 700, letterSpacing: '.08em', color: '#fff', background: 'oklch(0.55 0.22 25 / .85)', padding: '4px 9px', borderRadius: 999, backdropFilter: 'blur(4px)' }}>
+          <Icon name="play" size={11} fill /> YOUTUBE
+        </span>
+      )}
+      {!playing && url && !isYT && (
         <button className="short-playbtn" onClick={toggle}><Icon name="play" size={30} fill /></button>
       )}
       {video.wasLive && (
@@ -251,6 +266,59 @@ function LiveStudio({ me, onClose, onPublish }) {
     </div>
   );
 }
+function extractYouTubeId(url) {
+  const m = (url || '').match(/(?:youtube(?:-nocookie)?\.com\/(?:watch\?(?:.*&)?v=|embed\/|shorts\/)|youtu\.be\/)([A-Za-z0-9_-]{11})/);
+  return m ? m[1] : null;
+}
+
+function YouTubeImportModal({ me, onClose, onPublish }) {
+  const [url, setUrl] = useState('');
+  const [caption, setCaption] = useState('');
+  const id = extractYouTubeId(url);
+  const publish = () => {
+    if (!id) return;
+    const author = { id: me.id, name: me.name, handle: me.handle, hue: me.hue, avatar: me.avatar, verified: me.verified };
+    onPublish({ id: 'v_' + Date.now().toString(36), author, media: { type: 'youtube', videoId: id }, caption: caption.trim(), ts: Date.now() });
+    onClose();
+  };
+  return (
+    <div className="censa-modal-bg" onClick={onClose}>
+      <div className="censa-modal card" onClick={(e) => e.stopPropagation()} style={{ maxWidth: 440 }}>
+        <div className="censa-modal-head">
+          <span style={{ fontWeight: 700, fontSize: 16, fontFamily: 'var(--font-brand)' }}>{L({ fr: 'Importer une vidéo YouTube', en: 'Import a YouTube video' })}</span>
+          <button className="iconbtn" onClick={onClose} style={{ width: 30, height: 30 }}><Icon name="x" size={16} /></button>
+        </div>
+        <div style={{ padding: '14px 18px 4px', display: 'flex', flexDirection: 'column', gap: 12 }}>
+          <div className="field" style={{ margin: 0 }}>
+            <label>{L({ fr: 'Lien YouTube', en: 'YouTube link' })}</label>
+            <input className="input" value={url} onChange={(e) => setUrl(e.target.value)} placeholder="https://youtube.com/watch?v=…" />
+          </div>
+          {url && !id && <div className="mono" style={{ fontSize: 12, color: 'var(--alarm)' }}>{L({ fr: 'Lien YouTube non reconnu.', en: 'Unrecognized YouTube link.' })}</div>}
+          {id && (
+            <div style={{ borderRadius: 12, overflow: 'hidden', border: '1px solid var(--border)', aspectRatio: '16 / 9' }}>
+              <iframe width="100%" height="100%" style={{ display: 'block', border: 'none' }}
+                src={'https://www.youtube-nocookie.com/embed/' + id} title="preview" referrerPolicy="no-referrer"
+                sandbox="allow-scripts allow-same-origin allow-presentation allow-popups" allowFullScreen />
+            </div>
+          )}
+          <div className="field" style={{ margin: 0 }}>
+            <label>{L({ fr: 'Légende (option)', en: 'Caption (optional)' })}</label>
+            <input className="input" value={caption} onChange={(e) => setCaption(e.target.value)} maxLength={140} placeholder={L({ fr: 'Un mot sur cette vidéo…', en: 'A word about this video…' })} />
+          </div>
+          <p className="mono" style={{ fontSize: 11, color: 'var(--text-faint)', lineHeight: 1.5 }}>
+            {L({ fr: 'La vidéo reste hébergée sur YouTube et s’affiche intégrée dans votre fil — elle n’est pas copiée sur CENSA.', en: 'The video stays hosted on YouTube and shows embedded in your feed — it is not copied onto CENSA.' })}
+          </p>
+        </div>
+        <div style={{ padding: '10px 18px 18px' }}>
+          <button className="btn btn-primary" onClick={publish} disabled={!id} style={{ width: '100%', padding: '12px 0', opacity: id ? 1 : .55 }}>
+            <Icon name="plus" size={16} sw={2.6} /> {L({ fr: 'Publier dans vos vidéos', en: 'Publish to your videos' })}
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
 function liveBtn(active) {
   return { width: 50, height: 50, borderRadius: '50%', display: 'grid', placeItems: 'center', cursor: 'pointer', border: 'none',
     background: active ? '#fff' : 'oklch(0 0 0 / .45)', color: active ? '#000' : '#fff', backdropFilter: 'blur(4px)' };
@@ -260,6 +328,7 @@ function VideosPage({ t, me, videos, onPersist }) {
   const [busy, setBusy] = useState(false);
   const [err, setErr] = useState('');
   const [live, setLive] = useState(false);
+  const [ytImport, setYtImport] = useState(false);
   const { ids: followIds } = useFollow();
   const meId = me && me.id;
   // on ne voit que ses vidéos, celles de ses ami(e)s (suivis) et des célébrités
@@ -299,6 +368,9 @@ function VideosPage({ t, me, videos, onPersist }) {
           <button className="btn" onClick={() => setLive(true)} style={{ padding: '9px 15px', fontSize: 13.5, borderColor: 'var(--border-br)' }}>
             <span className="hive-rec" style={{ width: 8, height: 8, borderRadius: 99, background: 'var(--alarm)', display: 'inline-block' }} /> {L({ fr: 'Passer en direct', en: 'Go live' })}
           </button>
+          <button className="btn" onClick={() => setYtImport(true)} style={{ padding: '9px 15px', fontSize: 13.5, borderColor: 'var(--border-br)' }}>
+            <Icon name="play" size={15} fill /> {L({ fr: 'Importer YouTube', en: 'Import YouTube' })}
+          </button>
           <button className="btn btn-primary" onClick={add} disabled={busy} style={{ padding: '9px 16px', fontSize: 13.5 }}>
             {busy ? t.uploading : <><Icon name="plus" size={16} sw={2.6} /> {t.post_video}</>}
           </button>
@@ -329,6 +401,9 @@ function VideosPage({ t, me, videos, onPersist }) {
             <button className="btn btn-primary" onClick={add} disabled={busy} style={{ padding: '11px 22px' }}>
               {busy ? t.uploading : <><Icon name="plus" size={16} sw={2.6} /> {t.post_video}</>}
             </button>
+            <button className="btn" onClick={() => setYtImport(true)} style={{ padding: '11px 22px' }}>
+              <Icon name="play" size={15} fill /> {L({ fr: 'Importer YouTube', en: 'Import YouTube' })}
+            </button>
             <button className="btn" onClick={() => setLive(true)} style={{ padding: '11px 22px' }}>
               <span className="hive-rec" style={{ width: 8, height: 8, borderRadius: 99, background: 'var(--alarm)', display: 'inline-block' }} /> {L({ fr: 'Passer en direct', en: 'Go live' })}
             </button>
@@ -341,8 +416,9 @@ function VideosPage({ t, me, videos, onPersist }) {
       )}
 
       {live && <LiveStudio me={me} onClose={() => setLive(false)} onPublish={onPersist} />}
+      {ytImport && <YouTubeImportModal me={me} onClose={() => setYtImport(false)} onPublish={onPersist} />}
     </div>
   );
 }
 
-Object.assign(window, { VideosPage, ShortVideo, LiveStudio });
+Object.assign(window, { VideosPage, ShortVideo, LiveStudio, YouTubeImportModal, extractYouTubeId });

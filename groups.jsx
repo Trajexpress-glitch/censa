@@ -179,7 +179,15 @@ function GroupDetail({ g, me, onBack, onUpdate, onDelete }) {
       <div className="center-head" style={{ gap: 12 }}>
         <button className="iconbtn" onClick={onBack}><Icon name="back" size={20} /></button>
         <h1 style={{ whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{g.name}</h1>
-        {isOwner && <button className="iconbtn" title={L({ fr: 'Supprimer le groupe', en: 'Delete group' })} onClick={() => onDelete(g.id)} style={{ marginLeft: 'auto' }}><Icon name="trash" size={17} /></button>}
+        <div style={{ marginLeft: 'auto', display: 'flex', gap: 6 }}>
+          <button className="iconbtn" title={L({ fr: 'Appel audio', en: 'Audio call' })}
+            onClick={() => window.startCall && window.startCall({ kind: 'group', id: g.id, name: g.name, members: g.members }, 'audio')}
+            style={{ color: 'var(--accent)' }}><Icon name="phone" size={18} /></button>
+          <button className="iconbtn" title={L({ fr: 'Appel vidéo', en: 'Video call' })}
+            onClick={() => window.startCall && window.startCall({ kind: 'group', id: g.id, name: g.name, members: g.members }, 'video')}
+            style={{ color: 'var(--accent)' }}><Icon name="video" size={18} /></button>
+          {isOwner && <button className="iconbtn" title={L({ fr: 'Supprimer le groupe', en: 'Delete group' })} onClick={() => onDelete(g.id)}><Icon name="trash" size={17} /></button>}
+        </div>
       </div>
 
       <div style={{ padding: 18, maxWidth: 680, margin: '0 auto', display: 'flex', flexDirection: 'column', gap: 16 }}>
