@@ -590,8 +590,10 @@ function App() {
   const publishStory = async (slides) => {
     if (!slides || !slides.length) { setStoryComposer(false); return; }
     if (window.CENSA_CLOUD && window.CENSA_CLOUD.ready()) {
-      const story = await window.CENSA_CLOUD.createStory(slides);
-      if (story) { setStories(s => { const idx = s.findIndex(x => x.author.id === story.author.id); if (idx === -1) return [story, ...s]; const next = s.slice(); next[idx] = story; return next; }); setStoryComposer(false); return; }
+      try {
+        const story = await window.CENSA_CLOUD.createStory(slides);
+        if (story) { setStories(s => { const idx = s.findIndex(x => x.author.id === story.author.id); if (idx === -1) return [story, ...s]; const next = s.slice(); next[idx] = story; return next; }); setStoryComposer(false); return; }
+      } catch (e) { console.warn('publishStory (cloud)', e); }
     }
     const author = { id: me.id, name: me.name, handle: me.handle, hue: me.hue, avatar: me.avatar, verified: me.verified };
     const now = Date.now();

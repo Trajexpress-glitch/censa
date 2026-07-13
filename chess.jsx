@@ -141,10 +141,22 @@ function chessBestMove(board, color) {
 
 function readChessState() { try { return JSON.parse(localStorage.getItem('censa_chess')) || null; } catch (e) { return null; } }
 function writeChessState(v) { try { localStorage.setItem('censa_chess', JSON.stringify(v)); } catch (e) {} }
-function newChessGame(mode) { return { board: initialChessBoard(), turn: 'w', mode: mode || 'ai', status: 'playing', winner: null }; }
+function newChessGame(mode) { return { board: initialChessBoard(), turn: 'w', mode: mode || 'ai', status: 'playing', winner: null, captured: { w: [], b: [] }, history: [], lastMove: null }; }
+const CHESS_FILES = ['a', 'b', 'c', 'd', 'e', 'f', 'g', 'h'];
+function chessSquareName(r, c) { return CHESS_FILES[c] + (8 - r); }
+function chessMoveNotation(board, from, to, captured) {
+  const p = board[from.r][from.c];
+  const type = pieceType(p);
+  const letter = type === 'P' ? '' : type;
+  return letter + (captured ? 'x' : '') + chessSquareName(to.r, to.c);
+}
 
 function Chess({ t }) {
-  const [game, setGame] = useState(() => readChessState() || newChessGame('ai'));
+  const [game, setGame] = useState(() => {
+    const saved = readChessState();
+    if (!saved) return newChessGame('ai');
+    return { captured: { w: [], b: [] }, history: [], lastMove: null, ...saved };
+  });
   const [sel, setSel] = useState(null);
   const [targets, setTargets] = useState([]);
   const [thinking, setThinking] = useState(false);
@@ -160,10 +172,14 @@ function Chess({ t }) {
 
   function applyMove(from, to) {
     setGame(g => {
+      const captured = g.board[to.r][to.c];
+      const notation = chessMoveNotation(g.board, from, to, captured);
       const board = chessMakeMove(g.board, from, to);
       const nextTurn = g.turn === 'w' ? 'b' : 'w';
       const st = evalStatus(board, nextTurn);
-      return { ...g, board, turn: nextTurn, status: st.status, winner: st.winner };
+      const capturedNext = { w: g.captured.w.slice(), b: g.captured.b.slice() };
+      if (captured) capturedNext[g.turn].push(captured);
+      return { ...g, board, turn: nextTurn, status: st.status, winner: st.winner, captured: capturedNext, history: [...g.history, { by: g.turn, notation }], lastMove: { from, to } };
     });
     setSel(null); setTargets([]);
   }
@@ -199,8 +215,39 @@ function Chess({ t }) {
     stalemate: L({ fr: 'Pat — partie nulle', en: 'Stalemate — draw' }),
   }[game.status];
 
+  function CapturedRow({ color }) {
+    const list = game.captured[color === 'w' ? 'b' : 'w']; // pièces prises PAR ce camp
+    if (!list.length) return <div style={{ height: 20 }} />;
+    return (
+      <div style={{ display: 'flex', flexWrap: 'wrap', gap: 1, minHeight: 20, fontSize: 15, color: 'var(--text-faint)', lineHeight: 1 }}>
+        {list.map((p, i) => <span key={i}>{CHESS_UNI[p]}</span>)}
+      </div>
+    );
+  }
+
+  function PlayerRow({ color, thinkingNow }) {
+    const isTurn = game.turn === color && game.status !== 'checkmate' && game.status !== 'stalemate';
+    const isAI = game.mode === 'ai' && color === 'b';
+    const label = isAI ? L({ fr: 'IA', en: 'AI' }) : (color === 'w' ? L({ fr: 'Vous', en: 'You' }) : L({ fr: 'Joueur 2', en: 'Player 2' }));
+    return (
+      <div style={{ display: 'flex', alignItems: 'center', gap: 11, padding: '9px 12px', borderRadius: 12, background: isTurn ? 'var(--surface-2)' : 'transparent', transition: 'background .2s' }}>
+        <span style={{ position: 'relative', width: 38, height: 38, borderRadius: '50%', flex: '0 0 auto', display: 'grid', placeItems: 'center', background: color === 'w' ? '#f4f4f2' : '#23262e', border: '1px solid var(--border-br)' }}>
+          {isAI ? <Icon name="bolt" size={18} style={{ color: color === 'w' ? '#1a1c22' : 'var(--accent)' }} fill /> : <Icon name="user" size={18} style={{ color: color === 'w' ? '#1a1c22' : '#e8e8ec' }} />}
+          {isTurn && <span style={{ position: 'absolute', inset: -3, borderRadius: '50%', boxShadow: '0 0 0 2px var(--accent)' }} />}
+        </span>
+        <div style={{ display: 'flex', flexDirection: 'column', gap: 3, minWidth: 0 }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 7 }}>
+            <span style={{ fontWeight: 700, fontSize: 14.5, fontFamily: 'var(--font-brand)' }}>{label}</span>
+            {isTurn && thinkingNow && <span className="mono" style={{ fontSize: 11, color: 'var(--accent)' }}>{L({ fr: 'réfléchit…', en: 'thinking…' })}</span>}
+          </div>
+          <CapturedRow color={color} />
+        </div>
+      </div>
+    );
+  }
+
   return (
-    <div className="animate-in" style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 16, padding: '6px 0 30px' }}>
+    <div className="animate-in" style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 14, padding: '6px 0 30px', width: '100%' }}>
       <div style={{ display: 'flex', gap: 10, flexWrap: 'wrap', justifyContent: 'center' }}>
         <button className={'btn' + (game.mode === 'ai' ? ' btn-primary' : '')} style={{ padding: '7px 14px', fontSize: 12.5 }} onClick={() => startNew('ai')}>
           {L({ fr: 'Vs IA', en: 'Vs AI' })}
@@ -213,35 +260,65 @@ function Chess({ t }) {
         </button>
       </div>
 
-      <div className="mono" style={{ fontSize: 13, color: game.status === 'check' || game.status === 'checkmate' ? 'var(--alarm)' : 'var(--text-dim)' }}>
-        {thinking ? L({ fr: 'L’IA réfléchit…', en: 'AI thinking…' }) : statusLabel}
-      </div>
+      <div style={{ display: 'flex', gap: 20, flexWrap: 'wrap', justifyContent: 'center', alignItems: 'flex-start', width: '100%', maxWidth: 740 }}>
+        <div className="card" style={{ padding: 14, display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 10, flex: '0 0 auto' }}>
+          <PlayerRow color="b" thinkingNow={thinking} />
 
-      <div style={{
-        display: 'grid', gridTemplateColumns: 'repeat(8, minmax(0,1fr))', width: 'min(92vw, 464px)', aspectRatio: '1',
-        border: '2px solid var(--border-br)', borderRadius: 10, overflow: 'hidden',
-      }}>
-        {Array.from({ length: 64 }).map((_, i) => {
-          const r = Math.floor(i / 8), c = i % 8;
-          const p = game.board[r][c];
-          const isSel = sel && sel.r === r && sel.c === c;
-          const isTarget = targets.some(m => m.r === r && m.c === c);
-          const dark = (r + c) % 2 === 1;
-          const isKingInCheck = p && pieceType(p) === 'K' && pieceColor(p) === game.turn && (game.status === 'check' || game.status === 'checkmate');
-          return (
-            <button key={i} onClick={() => click(r, c)}
-              style={{
-                background: isSel ? 'var(--glow)' : isKingInCheck ? 'oklch(0.6 0.18 25 / 0.35)' : dark ? 'var(--surface-2)' : 'var(--surface)',
-                border: 'none', cursor: p ? 'pointer' : (isTarget ? 'pointer' : 'default'), position: 'relative',
-                display: 'grid', placeItems: 'center', fontSize: 'clamp(20px, 5vw, 32px)',
-                color: p && p[0] === 'w' ? '#f4f4f2' : '#1a1c22',
-              }}>
-              {p && <span style={{ filter: p[0] === 'w' ? 'drop-shadow(0 0 1px rgba(0,0,0,.6))' : 'none' }}>{CHESS_UNI[p]}</span>}
-              {isTarget && !p && <span style={{ position: 'absolute', width: '28%', height: '28%', borderRadius: '50%', background: 'var(--accent)', opacity: 0.55 }} />}
-              {isTarget && p && <span style={{ position: 'absolute', inset: 3, borderRadius: 6, boxShadow: '0 0 0 3px var(--accent) inset' }} />}
-            </button>
-          );
-        })}
+          <div className="mono" style={{ fontSize: 12.5, padding: '4px 12px', borderRadius: 999, background: 'var(--surface-2)', color: game.status === 'check' || game.status === 'checkmate' ? 'var(--alarm)' : 'var(--text-dim)' }}>
+            {thinking ? L({ fr: 'L’IA réfléchit…', en: 'AI thinking…' }) : statusLabel}
+          </div>
+
+          <div style={{ display: 'grid', gridTemplateColumns: '18px repeat(8, minmax(0,1fr))', gridTemplateRows: 'repeat(8, minmax(0,1fr)) 18px', width: 'min(88vw, 464px)', aspectRatio: '480 / 498' }}>
+            {Array.from({ length: 8 }).map((_, r) => (
+              <div key={'rl' + r} className="mono" style={{ gridColumn: 1, gridRow: r + 1, display: 'grid', placeItems: 'center', fontSize: 10.5, color: 'var(--text-faint)' }}>{8 - r}</div>
+            ))}
+            {Array.from({ length: 64 }).map((_, i) => {
+              const r = Math.floor(i / 8), c = i % 8;
+              const p = game.board[r][c];
+              const isSel = sel && sel.r === r && sel.c === c;
+              const isTarget = targets.some(m => m.r === r && m.c === c);
+              const isLast = game.lastMove && ((game.lastMove.from.r === r && game.lastMove.from.c === c) || (game.lastMove.to.r === r && game.lastMove.to.c === c));
+              const dark = (r + c) % 2 === 1;
+              const isKingInCheck = p && pieceType(p) === 'K' && pieceColor(p) === game.turn && (game.status === 'check' || game.status === 'checkmate');
+              return (
+                <button key={i} onClick={() => click(r, c)}
+                  style={{
+                    gridColumn: c + 2, gridRow: r + 1,
+                    background: isSel ? 'var(--glow)' : isKingInCheck ? 'oklch(0.6 0.18 25 / 0.35)' : isLast ? 'oklch(0.78 0.135 196 / 0.14)' : dark ? 'var(--surface-2)' : 'var(--surface)',
+                    border: 'none', cursor: p ? 'pointer' : (isTarget ? 'pointer' : 'default'), position: 'relative',
+                    display: 'grid', placeItems: 'center', fontSize: 'clamp(19px, 4.6vw, 30px)',
+                    color: p && p[0] === 'w' ? '#f4f4f2' : '#20222a',
+                  }}>
+                  {p && <span style={{
+                    WebkitTextStroke: p[0] === 'w' ? '1px rgba(0,0,0,.55)' : '1.2px rgba(255,255,255,.9)',
+                    filter: p[0] === 'w' ? 'drop-shadow(0 0 1px rgba(0,0,0,.6))' : 'drop-shadow(0 0 1px rgba(0,0,0,.3))',
+                  }}>{CHESS_UNI[p]}</span>}
+                  {isTarget && !p && <span style={{ position: 'absolute', width: '28%', height: '28%', borderRadius: '50%', background: 'var(--accent)', opacity: 0.55 }} />}
+                  {isTarget && p && <span style={{ position: 'absolute', inset: 3, borderRadius: 6, boxShadow: '0 0 0 3px var(--accent) inset' }} />}
+                </button>
+              );
+            })}
+            {CHESS_FILES.map((f, c) => (
+              <div key={'cl' + c} className="mono" style={{ gridColumn: c + 2, gridRow: 9, display: 'grid', placeItems: 'center', fontSize: 10.5, color: 'var(--text-faint)' }}>{f}</div>
+            ))}
+          </div>
+
+          <PlayerRow color="w" />
+        </div>
+
+        <div className="card" style={{ padding: '12px 14px', width: 176, flex: '0 0 auto', maxHeight: 420, display: 'flex', flexDirection: 'column', gap: 8 }}>
+          <div style={{ fontWeight: 700, fontSize: 13, fontFamily: 'var(--font-brand)', color: 'var(--text-dim)' }}>{L({ fr: 'Coups joués', en: 'Move list' })}</div>
+          <div className="mono" style={{ fontSize: 12.5, overflowY: 'auto', display: 'flex', flexDirection: 'column', gap: 3, flex: 1, minHeight: 0 }}>
+            {game.history.length === 0 && <span style={{ color: 'var(--text-faint)' }}>{L({ fr: 'Aucun coup', en: 'No moves yet' })}</span>}
+            {Array.from({ length: Math.ceil(game.history.length / 2) }).map((_, i) => (
+              <div key={i} style={{ display: 'flex', gap: 8 }}>
+                <span style={{ color: 'var(--text-faint)', width: 20 }}>{i + 1}.</span>
+                <span style={{ minWidth: 44 }}>{game.history[i * 2] && game.history[i * 2].notation}</span>
+                <span style={{ color: 'var(--text-dim)' }}>{game.history[i * 2 + 1] && game.history[i * 2 + 1].notation}</span>
+              </div>
+            ))}
+          </div>
+        </div>
       </div>
     </div>
   );

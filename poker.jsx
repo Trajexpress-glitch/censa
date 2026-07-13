@@ -19,9 +19,9 @@ const TOKEN_STRIPE_CONFIG = {
   backendUrl: '', // ex : 'https://censa-backend.onrender.com'
   paymentLinks: {
     // colle ici tes liens de paiement Stripe (dashboard.stripe.com → Payment Links)
-    jetons_500: '',
-    jetons_1500: '',
-    jetons_5000: '',
+    jetons_500: 'https://buy.stripe.com/4gM7sMeui64h7Go7GHaEE03',
+    jetons_1500: 'https://buy.stripe.com/3cIfZi85UgIVf8Q7GHaEE04',
+    jetons_5000: 'https://buy.stripe.com/aFabJ23PEdwJ3q8e55aEE05',
   },
 };
 
@@ -319,6 +319,33 @@ function Poker({ t }) {
 
   const seatName = (i) => i === 0 ? L({ fr: 'Vous', en: 'You' }) : `Bot ${i}`;
 
+  function Seat({ i }) {
+    const active = hand && !hand.over && hand.toAct[0] === i;
+    const folded = hand && hand.folded[i];
+    const showCards = hand && (i === 0 || hand.revealBots || (hand.over && !folded));
+    const bet = hand ? hand.bets[i] : 0;
+    return (
+      <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 6, opacity: folded ? 0.4 : 1 }}>
+        <div style={{ display: 'flex', gap: 3, minHeight: 48 }}>
+          {showCards ? hand.hole[i].map((c, k) => <PlayingCard key={k} card={c} />) : [0, 1].map(k => <CardBack key={k} />)}
+        </div>
+        <div style={{ position: 'relative', display: 'flex', alignItems: 'center', gap: 8, padding: '5px 12px 5px 5px', borderRadius: 999, background: active ? 'var(--surface-hi)' : 'var(--surface-2)', border: '1px solid ' + (active ? 'var(--accent)' : 'var(--border-br)') }}>
+          <span style={{ width: 30, height: 30, borderRadius: '50%', flex: '0 0 auto', display: 'grid', placeItems: 'center', background: i === 0 ? 'var(--accent)' : 'var(--surface-hi)', color: i === 0 ? 'var(--accent-ink)' : 'var(--text-dim)' }}>
+            <Icon name={i === 0 ? 'user' : 'bolt'} size={15} fill={i !== 0} />
+          </span>
+          <div style={{ display: 'flex', flexDirection: 'column', lineHeight: 1.25 }}>
+            <span style={{ fontWeight: 700, fontSize: 12.5 }}>{seatName(i)}</span>
+            <span className="mono" style={{ fontSize: 11, color: 'var(--text-faint)' }}>{hand ? hand.stacks[i].toLocaleString('fr-FR') : ''}</span>
+          </div>
+          {hand && hand.dealerIdx === i && (
+            <span className="mono" style={{ position: 'absolute', top: -6, right: -6, width: 18, height: 18, borderRadius: '50%', background: 'var(--text)', color: 'var(--bg-deep)', fontSize: 9.5, fontWeight: 700, display: 'grid', placeItems: 'center', border: '1px solid var(--border-br)' }}>D</span>
+          )}
+        </div>
+        {bet > 0 && <span className="mono" style={{ fontSize: 11, color: 'var(--accent)', display: 'flex', alignItems: 'center', gap: 4 }}><Icon name="chip" size={12} />{bet}</span>}
+      </div>
+    );
+  }
+
   return (
     <div className="animate-in" style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 14, padding: '6px 0 30px' }}>
       <div style={{ display: 'flex', gap: 14, alignItems: 'center', flexWrap: 'wrap', justifyContent: 'center' }}>
@@ -327,30 +354,28 @@ function Poker({ t }) {
         <button className="btn" style={{ padding: '6px 12px', fontSize: 11.5 }} onClick={leaveTable}><Icon name="back" size={13} /> {L({ fr: 'Quitter la table', en: 'Leave table' })}</button>
       </div>
 
-      <div style={{ width: 'min(94vw, 560px)', background: 'radial-gradient(ellipse at center, var(--surface-2), var(--surface))', border: '2px solid var(--border-br)', borderRadius: 24, padding: '22px 16px', display: 'flex', flexDirection: 'column', gap: 16, alignItems: 'center' }}>
-        <div style={{ display: 'flex', gap: 16, justifyContent: 'center' }}>
-          {[1, 2].map(i => (
-            <div key={i} style={{ textAlign: 'center', opacity: hand && hand.folded[i] ? 0.35 : 1 }}>
-              <div className="mono" style={{ fontSize: 11, color: 'var(--text-faint)' }}>{seatName(i)} · {hand ? hand.stacks[i].toLocaleString('fr-FR') : ''}</div>
-              <div style={{ display: 'flex', gap: 3, marginTop: 4, justifyContent: 'center' }}>
-                {(hand && (hand.revealBots || hand.folded[i] === false && hand.over)) ? hand.hole[i].map((c, k) => <PlayingCard key={k} card={c} />) : [0, 1].map(k => <CardBack key={k} />)}
-              </div>
-              {hand && hand.dealerIdx === i && <div className="mono" style={{ fontSize: 9.5, color: 'var(--accent)', marginTop: 3 }}>D</div>}
-            </div>
-          ))}
+      <div style={{
+        position: 'relative', width: 'min(94vw, 620px)', aspectRatio: '620 / 420',
+        background: 'radial-gradient(ellipse at 50% 42%, oklch(0.32 0.05 155), oklch(0.22 0.045 155) 72%)',
+        border: '10px solid var(--surface-hi)', outline: '2px solid var(--border-br)', outlineOffset: '-1px',
+        borderRadius: '50% / 40%', boxShadow: 'inset 0 0 60px -10px rgba(0,0,0,.5), 0 18px 44px -20px rgba(0,0,0,.6)',
+        display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'space-between', padding: '26px 16px 20px',
+      }}>
+        <div style={{ display: 'flex', gap: 'clamp(20px, 12vw, 90px)', justifyContent: 'center' }}>
+          <Seat i={1} />
+          <Seat i={2} />
         </div>
 
-        <div style={{ display: 'flex', gap: 6, minHeight: 66, alignItems: 'center' }}>
-          {hand && hand.community.map((c, i) => <PlayingCard key={i} card={c} />)}
-        </div>
-        <div className="mono" style={{ fontSize: 13, color: 'var(--accent)' }}>{L({ fr: 'Pot', en: 'Pot' })}: {hand ? hand.pot.toLocaleString('fr-FR') : 0}</div>
-
-        <div style={{ textAlign: 'center', opacity: hand && hand.folded[0] ? 0.35 : 1 }}>
-          <div style={{ display: 'flex', gap: 4, justifyContent: 'center' }}>
-            {hand && hand.hole[0].map((c, k) => <PlayingCard key={k} card={c} big />)}
+        <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 8 }}>
+          <div style={{ display: 'flex', gap: 6, minHeight: 66, alignItems: 'center' }}>
+            {hand && hand.community.map((c, i) => <PlayingCard key={i} card={c} />)}
           </div>
-          <div className="mono" style={{ fontSize: 11.5, color: 'var(--text-dim)', marginTop: 4 }}>{seatName(0)} · {hand ? hand.stacks[0].toLocaleString('fr-FR') : ''}{hand && hand.dealerIdx === 0 ? ' · D' : ''}</div>
+          <div className="mono" style={{ fontSize: 13, fontWeight: 700, color: 'var(--accent-ink)', background: 'var(--accent)', padding: '4px 14px', borderRadius: 999, display: 'flex', alignItems: 'center', gap: 6 }}>
+            <Icon name="chip" size={14} />{L({ fr: 'Pot', en: 'Pot' })} {hand ? hand.pot.toLocaleString('fr-FR') : 0}
+          </div>
         </div>
+
+        <Seat i={0} />
       </div>
 
       {hand && hand.over ? (
@@ -365,14 +390,14 @@ function Poker({ t }) {
             : <button className="btn btn-primary" onClick={nextHand} style={{ padding: '9px 18px' }}>{L({ fr: 'Main suivante', en: 'Next hand' })}</button>}
         </div>
       ) : (
-        <div style={{ display: 'flex', gap: 10, flexWrap: 'wrap', justifyContent: 'center' }}>
-          <button className="btn" disabled={!canAct} style={{ padding: '11px 18px', opacity: canAct ? 1 : 0.4 }} onClick={() => act('fold')}>{L({ fr: 'Se coucher', en: 'Fold' })}</button>
+        <div className="card" style={{ padding: 10, display: 'flex', gap: 10, flexWrap: 'wrap', justifyContent: 'center' }}>
+          <button className="btn" disabled={!canAct} style={{ padding: '11px 18px', opacity: canAct ? 1 : 0.4 }} onClick={() => act('fold')}><Icon name="x" size={15} /> {L({ fr: 'Se coucher', en: 'Fold' })}</button>
           {toCallPlayer <= 0
-            ? <button className="btn" disabled={!canAct} style={{ padding: '11px 18px', opacity: canAct ? 1 : 0.4 }} onClick={() => act('check')}>{L({ fr: 'Check', en: 'Check' })}</button>
-            : <button className="btn" disabled={!canAct} style={{ padding: '11px 18px', opacity: canAct ? 1 : 0.4 }} onClick={() => act('call')}>{L({ fr: 'Suivre', en: 'Call' })} {toCallPlayer}</button>}
+            ? <button className="btn" disabled={!canAct} style={{ padding: '11px 18px', opacity: canAct ? 1 : 0.4 }} onClick={() => act('check')}><Icon name="check" size={15} /> {L({ fr: 'Check', en: 'Check' })}</button>
+            : <button className="btn" disabled={!canAct} style={{ padding: '11px 18px', opacity: canAct ? 1 : 0.4 }} onClick={() => act('call')}><Icon name="chip" size={15} /> {L({ fr: 'Suivre', en: 'Call' })} {toCallPlayer}</button>}
           <button className="btn btn-primary" disabled={!canAct || !stacks} style={{ padding: '11px 18px', opacity: canAct ? 1 : 0.4 }}
             onClick={() => act('raise', (hand.currentBet || BB) + Math.max(BB * 2, hand.currentBet || 0))}>
-            {L({ fr: 'Relancer', en: 'Raise' })}
+            <Icon name="bolt" size={15} fill /> {L({ fr: 'Relancer', en: 'Raise' })}
           </button>
         </div>
       )}
@@ -382,13 +407,13 @@ function Poker({ t }) {
 }
 
 function CardBack() {
-  return <div style={{ width: 34, height: 48, borderRadius: 6, background: 'repeating-linear-gradient(135deg, var(--accent), var(--accent) 4px, var(--surface-hi) 4px, var(--surface-hi) 8px)', border: '1px solid var(--border-br)' }} />;
+  return <div style={{ width: 34, height: 48, borderRadius: 6, background: 'repeating-linear-gradient(135deg, var(--accent), var(--accent) 4px, var(--surface-hi) 4px, var(--surface-hi) 8px)', border: '1px solid var(--border-br)', boxShadow: '0 2px 5px -1px rgba(0,0,0,.4)' }} />;
 }
 function PlayingCard({ card, big }) {
   const red = card.suit === '♥' || card.suit === '♦';
   const w = big ? 44 : 34, h = big ? 62 : 48;
   return (
-    <div style={{ width: w, height: h, borderRadius: 6, background: 'var(--text)', color: red ? '#c0304a' : '#1a1c22', display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', fontFamily: 'var(--font-mono)', fontWeight: 700, fontSize: big ? 16 : 13, border: '1px solid var(--border-br)', lineHeight: 1.05 }}>
+    <div style={{ width: w, height: h, borderRadius: 6, background: '#fbfbf9', color: red ? '#c0304a' : '#1a1c22', display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', fontFamily: 'var(--font-mono)', fontWeight: 700, fontSize: big ? 16 : 13, border: '1px solid var(--border-br)', lineHeight: 1.05, boxShadow: '0 2px 6px -1px rgba(0,0,0,.4)' }}>
       <span>{rankLabel(card.rank)}</span>
       <span style={{ fontSize: big ? 15 : 12 }}>{card.suit}</span>
     </div>
