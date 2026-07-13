@@ -35,6 +35,7 @@ function LeftNav({ t, route, go, me, onCompose, score, unread, onSignOut }) {
         {item('pages', 'bag', L({ fr: 'Pages', en: 'Pages' }))}
         {item('jobs', 'work', L({ fr: 'Emploi', en: 'Jobs' }))}
         {item('market', 'bag', L({ fr: 'Market', en: 'Market' }))}
+        {item('games', 'game', L({ fr: 'Jeux', en: 'Games' }))}
         {item('profile', 'user', t.profile)}
         <div style={{ height: 1, background: 'var(--border)', margin: '6px 10px' }} />
         {item('ads', 'bolt', L({ fr: 'Annoncer', en: 'Advertise' }))}
@@ -247,6 +248,9 @@ function AppHeader({ t, me, route, go, unread, lang, onLang, onSignOut, onSearch
       <button className={'hd-emploi' + (route === 'groups' ? ' active' : '')} onClick={() => go('groups')}>
         <Icon name="users" size={18} fill={route === 'groups'} /> <span>{L({ fr: 'Groupes', en: 'Groups' })}</span>
       </button>
+      <button className={'hd-emploi' + (route === 'games' ? ' active' : '')} onClick={() => go('games')}>
+        <Icon name="game" size={18} fill={route === 'games'} /> <span>{L({ fr: 'Jeux', en: 'Games' })}</span>
+      </button>
       <nav className="hd-tabs">
         {tabs.map(tb => (
           <button key={tb.id} className={'hd-tab' + (route === tb.id ? ' active' : '')} onClick={() => go(tb.id)}>
@@ -272,6 +276,7 @@ function AppHeader({ t, me, route, go, unread, lang, onLang, onSignOut, onSearch
             <button className="menu-row" onClick={() => { setMenu(false); go('pages'); }}><Icon name="bag" size={18} /> {L({ fr: 'Pages', en: 'Pages' })}</button>
             <button className="menu-row" onClick={() => { setMenu(false); go('jobs'); }}><Icon name="work" size={18} /> {L({ fr: 'Emploi', en: 'Jobs' })}</button>
             <button className="menu-row" onClick={() => { setMenu(false); go('market'); }}><Icon name="bag" size={18} /> {L({ fr: 'Censa Market', en: 'Censa Market' })}</button>
+            <button className="menu-row" onClick={() => { setMenu(false); go('games'); }}><Icon name="game" size={18} /> {L({ fr: 'Jeux', en: 'Games' })}</button>
             <button className="menu-row" onClick={() => { setMenu(false); go('messages'); }}><Icon name="mail" size={18} /> {t.messages}</button>
             <button className="menu-row" onClick={() => { setMenu(false); go('ads'); }}><Icon name="bolt" size={18} /> {L({ fr: 'Annoncer', en: 'Advertise' })}</button>
             <button className="menu-row" onClick={() => { setMenu(false); go('settings'); }}><Icon name="cog" size={18} /> {L({ fr: 'Paramètres', en: 'Settings' })}</button>
@@ -668,10 +673,11 @@ function App() {
   else if (route === 'pages') center = <Pages t={t} me={me} initialOpenId={openPageId} onConsumeInitial={() => setOpenPageId(null)} autoCreate={autoCreatePage} onConsumeAutoCreate={() => setAutoCreatePage(false)} />;
   else if (route === 'jobs') center = <Jobs t={t} me={me} />;
   else if (route === 'market') center = <Market t={t} me={me} onMessageUser={(uid) => { if (uid && uid !== me.id && typeof openChatWindow === 'function') openChatWindow({ kind: 'dm', id: uid }); else go('messages'); }} />;
+  else if (route === 'games') center = <div className="center-pad"><Games t={t} /></div>;
   else if (route === 'settings') center = <Settings t={t} me={me} onUpdateMe={updateMe} onDeleteAccount={deleteAccount} />;
   else if (route === 'profile') center = <Profile t={t} user={profileUser} isMe={profileUser.id === me.id} posts={posts} videos={videos} onOpen={openThread} onSignOut={logout} onUpdateMe={updateMe} onMessage={() => { if (profileUser && profileUser.id && profileUser.id !== me.id && typeof openChatWindow === 'function') { if (window.rememberUser) rememberUser(profileUser); openChatWindow({ kind: 'dm', id: profileUser.id }); } else go('messages'); }} />;
 
-  const showHead = route !== 'messages' && !openPost && route !== 'profile' && route !== 'ads' && route !== 'videos' && route !== 'friends' && route !== 'settings' && route !== 'jobs' && route !== 'groups' && route !== 'pages';
+  const showHead = route !== 'messages' && !openPost && route !== 'profile' && route !== 'ads' && route !== 'videos' && route !== 'friends' && route !== 'settings' && route !== 'jobs' && route !== 'groups' && route !== 'pages' && route !== 'games';
   const headTitle = { home: t.feed_title, explore: t.explore, notifs: t.notif_title }[route];
 
   return (
