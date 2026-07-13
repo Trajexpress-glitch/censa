@@ -205,7 +205,7 @@
 
   async function loadStories() {
     const sb = SB(); if (!sb) return null;
-    const since = new Date(Date.now() - 24 * 3600 * 1000).toISOString();
+    const since = new Date(Date.now() - 12 * 3600 * 1000).toISOString();
     const r = await sb.from('stories')
       .select('*, author:profiles!author_id(name,handle,hue,verified,avatar_url)')
       .gte('created_at', since).order('created_at', { ascending: false }).limit(100);
@@ -217,6 +217,17 @@
     const sb = SB(); if (!sb || !uid()) return null;
     const up = [];
     for (const sl of (slides || [])) up.push({ type: sl.type, key: await uploadMedia(sl.key) });
+    // regroupe avec la story en cours (< 12 h) de l'auteur au lieu d'en recréer une nouvelle
+    const since = new Date(Date.now() - 12 * 3600 * 1000).toISOString();
+    const existing = await sb.from('stories').select('*').eq('author_id', uid())
+      .gte('created_at', since).order('created_at', { ascending: false }).limit(1).maybeSingle();
+    if (existing.data) {
+      const merged = [...(existing.data.slides || []), ...up];
+      const r = await sb.from('stories').update({ slides: merged }).eq('id', existing.data.id)
+        .select('*, author:profiles!author_id(name,handle,hue,verified,avatar_url)').single();
+      if (r.error) { console.warn('createStory', r.error.message); return null; }
+      return mapStory(r.data);
+    }
     const r = await sb.from('stories').insert({ author_id: uid(), slides: up })
       .select('*, author:profiles!author_id(name,handle,hue,verified,avatar_url)').single();
     if (r.error) { console.warn('createStory', r.error.message); return null; }

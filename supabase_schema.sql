@@ -114,7 +114,7 @@ create table if not exists public.stories (
   author_id  uuid not null references public.profiles(id) on delete cascade,
   slides     jsonb not null default '[]'::jsonb,
   created_at timestamptz not null default now(),
-  expires_at timestamptz not null default (now() + interval '24 hours')
+  expires_at timestamptz not null default (now() + interval '12 hours')
 );
 create index if not exists idx_stories_author on public.stories(author_id);
 

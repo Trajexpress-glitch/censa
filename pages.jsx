@@ -262,7 +262,7 @@ function PageDetail({ p, me, onBack, onUpdate, onDelete }) {
 }
 
 /* ---------------- page Pages ---------------- */
-function Pages({ t, me, initialOpenId, onConsumeInitial }) {
+function Pages({ t, me, initialOpenId, onConsumeInitial, autoCreate, onConsumeAutoCreate }) {
   const cloud = window.CENSA_CLOUD && window.CENSA_CLOUD.ready();
   const [pages, setPages] = useState(() => cloud ? [] : readPages());
   const [creating, setCreating] = useState(false);
@@ -272,6 +272,9 @@ function Pages({ t, me, initialOpenId, onConsumeInitial }) {
   useEffect(() => {
     if (initialOpenId) { setOpenId(initialOpenId); if (onConsumeInitial) onConsumeInitial(); }
   }, [initialOpenId]);
+  useEffect(() => {
+    if (autoCreate) { setCreating(true); if (onConsumeAutoCreate) onConsumeAutoCreate(); }
+  }, [autoCreate]);
 
   const persist = (v) => { setPages(v); if (!cloud) writePages(v); };
   const create = async (p) => {

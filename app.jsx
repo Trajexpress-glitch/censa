@@ -322,6 +322,7 @@ function App() {
   const [memberSearch, setMemberSearch] = useState(false);
   const [pages, setPages] = useState([]);
   const [openPageId, setOpenPageId] = useState(null);
+  const [autoCreatePage, setAutoCreatePage] = useState(false);
   const [notifs, setNotifs] = useState(() => (window.CENSA_NOTIFS ? window.CENSA_NOTIFS.get() : []));
   const score = (me && typeof me.score === 'number') ? me.score : 100;
   const [payNotice, setPayNotice] = useState(null);
@@ -580,11 +581,19 @@ function App() {
     if (!slides || !slides.length) { setStoryComposer(false); return; }
     if (window.CENSA_CLOUD && window.CENSA_CLOUD.ready()) {
       const story = await window.CENSA_CLOUD.createStory(slides);
-      if (story) { setStories(s => [story, ...s]); setStoryComposer(false); return; }
+      if (story) { setStories(s => { const idx = s.findIndex(x => x.author.id === story.author.id); if (idx === -1) return [story, ...s]; const next = s.slice(); next[idx] = story; return next; }); setStoryComposer(false); return; }
     }
     const author = { id: me.id, name: me.name, handle: me.handle, hue: me.hue, avatar: me.avatar, verified: me.verified };
-    const story = { id: 's_' + Date.now().toString(36), author, slides, ts: Date.now() };
-    setStories(s => { const next = [story, ...s]; try { localStorage.setItem('censa_stories', JSON.stringify(next)); } catch (e) {} return next; });
+    const now = Date.now();
+    const stamped = slides.map(sl => ({ ...sl, ts: now }));
+    setStories(s => {
+      const idx = s.findIndex(x => x.author.id === me.id && (now - x.ts) < 12 * 3600 * 1000);
+      let next;
+      if (idx !== -1) next = s.map((x, i) => i === idx ? { ...x, slides: [...x.slides, ...stamped] } : x);
+      else next = [{ id: 's_' + now.toString(36), author, slides: stamped, ts: now }, ...s];
+      try { localStorage.setItem('censa_stories', JSON.stringify(next)); } catch (e) {}
+      return next;
+    });
     setStoryComposer(false);
   };
 
@@ -600,7 +609,7 @@ function App() {
 
   function readAccount() { try { return JSON.parse(localStorage.getItem('censa_account')); } catch (e) { return null; } }
   function finishAuth(u) { setMe(u); setCensaMe(u); setAuthed(true); localStorage.setItem('censa_auth', '1'); }
-  async function handleAuth({ mode, name, handle, email, password }) {
+  async function handleAuth({ mode, name, handle, email, password, asPage }) {
     // Chemin Supabase (auth réelle + synchronisation par compte)
     if (window.CENSA_SB && window.CENSA_SB.ready) {
       const res = await window.CENSA_SB.auth({ mode, name, handle, email, password, t });
@@ -608,6 +617,7 @@ function App() {
       reloadFromLocal(); setMe(res.me); setCensaMe(res.me); setAuthed(true);
       try { localStorage.setItem('censa_auth', '1'); } catch (e) {}
       refreshFeed();
+      if (asPage) { setAutoCreatePage(true); setRoute('pages'); }
       return null;
     }
     // Repli local (Supabase non configuré)
@@ -621,7 +631,9 @@ function App() {
       handle: handle || 'membre', email, password, verified: false, hue: 196,
       score: 100, observers: 0, joined: String(new Date().getFullYear()), bio: { fr: '', en: '' } };
     localStorage.setItem('censa_account', JSON.stringify(account));
-    finishAuth(account); return null;
+    finishAuth(account);
+    if (asPage) { setAutoCreatePage(true); setRoute('pages'); }
+    return null;
   }
   function logout() { try { window.CENSA_RT && window.CENSA_RT.stop(); } catch (e) {} if (window.CENSA_SB && window.CENSA_SB.ready) window.CENSA_SB.signOut(); localStorage.removeItem('censa_auth'); setCensaMe(ME); setAuthed(false); setViewUser(null); setRoute('home'); }
 
@@ -641,7 +653,7 @@ function App() {
 
   const profileUser = viewUser || me;
 
-  const visibleStories = stories.filter(s => Date.now() - s.ts < 24 * 3600 * 1000);
+  const visibleStories = stories.filter(s => Date.now() - s.ts < 12 * 3600 * 1000);
 
   let center;
   if (openPost) center = <Thread t={t} me={me} post={openPost} comments={COMMENTS[openPost.id]} onBack={() => setOpenPost(null)} />;
@@ -653,7 +665,7 @@ function App() {
   else if (route === 'ads') center = <Ads t={t} go={go} me={me} posts={posts} />;
   else if (route === 'friends') center = <Friends t={t} members={members} onOpenUser={openUser} onMessage={(m) => { if (m && m.id && typeof openChatWindow === 'function') openChatWindow({ kind: 'dm', id: m.id }); else go('messages'); }} />;
   else if (route === 'groups') center = <Groups t={t} me={me} />;
-  else if (route === 'pages') center = <Pages t={t} me={me} initialOpenId={openPageId} onConsumeInitial={() => setOpenPageId(null)} />;
+  else if (route === 'pages') center = <Pages t={t} me={me} initialOpenId={openPageId} onConsumeInitial={() => setOpenPageId(null)} autoCreate={autoCreatePage} onConsumeAutoCreate={() => setAutoCreatePage(false)} />;
   else if (route === 'jobs') center = <Jobs t={t} me={me} />;
   else if (route === 'market') center = <Market t={t} me={me} onMessageUser={(uid) => { if (uid && uid !== me.id && typeof openChatWindow === 'function') openChatWindow({ kind: 'dm', id: uid }); else go('messages'); }} />;
   else if (route === 'settings') center = <Settings t={t} me={me} onUpdateMe={updateMe} onDeleteAccount={deleteAccount} />;

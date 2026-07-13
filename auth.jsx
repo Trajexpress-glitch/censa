@@ -5,6 +5,7 @@
 function AuthScreen({ t, onAuth }) {
   const [mode, setMode] = useState('signup');
   const [form, setForm] = useState({ name: '', handle: '', email: '', password: '' });
+  const [asPage, setAsPage] = useState(false);
   const [err, setErr] = useState('');
   const [busy, setBusy] = useState(false);
   const set = (k, v) => { setForm(f => ({ ...f, [k]: v })); if (err) setErr(''); };
@@ -13,7 +14,7 @@ function AuthScreen({ t, onAuth }) {
     if (busy) return; setBusy(true);
     try {
       const error = await onAuth({ mode, name: form.name.trim(), handle: form.handle.trim().replace(/^@/, ''),
-        email: form.email.trim().toLowerCase(), password: form.password });
+        email: form.email.trim().toLowerCase(), password: form.password, asPage: mode === 'signup' && asPage });
       if (error) setErr(error);
     } finally { setBusy(false); }
   };
@@ -62,9 +63,16 @@ function AuthScreen({ t, onAuth }) {
             <div className="field"><label>{t.password}</label><input className="input" type="password" value={form.password} onChange={e => set('password', e.target.value)} placeholder="••••••••" /></div>
           </div>
 
+          {mode === 'signup' && (
+            <label style={{ marginTop: 14, display: 'flex', gap: 9, alignItems: 'flex-start', fontSize: 12.5, color: 'var(--text-dim)', lineHeight: 1.45, cursor: 'pointer' }}>
+              <input type="checkbox" checked={asPage} onChange={e => setAsPage(e.target.checked)} style={{ marginTop: 2 }} />
+              <span>{L({ fr: 'Je suis un(e) artiste ou une entreprise — créer une page professionnelle après l\u2019inscription.', en: 'I am an artist or a business — create a professional page after signing up.' })}</span>
+            </label>
+          )}
+
           {err && <p style={{ marginTop: 14, fontSize: 12.5, color: 'var(--alarm)', textAlign: 'center', lineHeight: 1.45 }}>{err}</p>}
           <button type="submit" className="btn btn-primary btn-block" disabled={!valid || busy} style={{ marginTop: 16, opacity: (valid && !busy) ? 1 : 0.5, padding: '13px 0' }}>
-            {busy ? '…' : (mode === 'signup' ? t.create : t.enter)}
+            {busy ? '…' : (mode === 'signup' ? (asPage ? L({ fr: 'Créer mon compte et ma page', en: 'Create my account and page' }) : t.create) : t.enter)}
           </button>
           <p style={{ marginTop: 14, fontSize: 11.5, color: 'var(--text-faint)', textAlign: 'center', lineHeight: 1.5, display: 'flex', gap: 7, justifyContent: 'center' }}>
             <Icon name="eye" size={14} style={{ color: 'var(--accent)', flex: '0 0 auto' }} /> {t.consent}
