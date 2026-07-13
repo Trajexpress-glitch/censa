@@ -346,6 +346,11 @@ function App() {
         const it = commitPendingMkFeature();
         if (it) { setOpenPost(null); setViewUser(null); setRoute('market'); }
       }
+      // achat de jetons Poker en attente
+      if (p === 'succes' && typeof commitPendingTokenPurchase === 'function') {
+        const amt = commitPendingTokenPurchase();
+        if (amt) { setOpenPost(null); setViewUser(null); setRoute('games'); }
+      }
       setPayNotice(p);
       try { window.history.replaceState({}, '', window.location.pathname); } catch (e) {}
       const id = setTimeout(() => setPayNotice(null), 7000);

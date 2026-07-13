@@ -193,18 +193,28 @@ function Sudoku({ t }) {
 /* ---------------- hub Jeux ---------------- */
 const GAME_LIST = [
   { id: 'sudoku', name: 'Sudoku', desc: { fr: 'Le classique casse-tête à chiffres, 3 niveaux de difficulté.', en: 'The classic number puzzle, 3 difficulty levels.' }, icon: 'game' },
+  { id: 'puzzle15', name: 'Taquin', desc: { fr: 'Le puzzle coulissant 15-Puzzle, remets les cases dans l’ordre.', en: 'The 15-Puzzle sliding tile game, restore the order.' }, icon: 'grid' },
+  { id: 'chess', name: 'Échecs', desc: { fr: 'Contre une IA ou à deux joueurs sur le même écran.', en: 'Vs AI or two players on the same screen.' }, icon: 'crown' },
+  { id: 'poker', name: 'Poker', desc: { fr: 'Texas Hold’em contre des bots, avec jetons virtuels.', en: 'Texas Hold’em vs bots, with virtual chips.' }, icon: 'chip' },
 ];
 
 function Games({ t }) {
   const [open, setOpen] = useState(null);
 
-  if (open === 'sudoku') {
+  const GAME_VIEW = {
+    sudoku: <Sudoku t={t} />,
+    puzzle15: <Puzzle15 t={t} />,
+    chess: <Chess t={t} />,
+    poker: <Poker t={t} />,
+  };
+
+  if (open && GAME_VIEW[open]) {
     return (
       <div>
         <button className="btn" style={{ margin: '0 0 14px', padding: '7px 14px', fontSize: 12.5 }} onClick={() => setOpen(null)}>
           <Icon name="back" size={15} /> {L({ fr: 'Jeux', en: 'Games' })}
         </button>
-        <Sudoku t={t} />
+        {GAME_VIEW[open]}
       </div>
     );
   }
@@ -226,3 +236,5 @@ function Games({ t }) {
     </div>
   );
 }
+
+Object.assign(window, { Games, Sudoku });
